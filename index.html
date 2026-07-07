@@ -4,1094 +4,976 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Leave Lab</title>
-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>html,body{margin:0;padding:0}</style>
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel" data-presets="react">
+<script>
+// If anything below fails, show the error on-page instead of a blank screen
+window.addEventListener('error', function(e){
+  var r = document.getElementById('root');
+  if (r && !r.hasChildNodes()) {
+    r.innerHTML = '<div style="padding:24px;font-family:monospace;color:#a33;white-space:pre-wrap">Leave Lab failed to load.\n\nError: ' +
+      (e.message || ('Could not load script: ' + (e.target && e.target.src ? e.target.src : 'unknown'))) +
+      '\n\nScreenshot this and send it to Claude.</div>';
+  }
+}, true);
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script>
+"use strict";
 const { useState, useEffect, useMemo, useRef } = React;
-
 // Leave Lab — NWL23 real leave values (Quackle/Macondo/MAGPIE), embedded.
-const BUILD = 'v8';
-
+const BUILD = 'v9';
 // Data is embedded below as gzip+base64 of lines "KEY INTVALUE" where
 // INTVALUE = round(realValue * 1000). Decompressed in-browser at load.
 const DATA_B64 = ""; // moved to external file leaves_nwl23.gz - set DATA_URL above
 // If set to a URL, data is fetched from there instead of the embedded blob.
 const DATA_URL = "leaves_nwl23.gz";
-
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 const TILE_DIST = {
-  A: 9, B: 2, C: 2, D: 4, E: 12, F: 2, G: 3, H: 2, I: 9, J: 1, K: 1, L: 4, M: 2,
-  N: 6, O: 8, P: 2, Q: 1, R: 6, S: 4, T: 6, U: 4, V: 2, W: 2, X: 1, Y: 2, Z: 1,
-  '?': 2,
+    A: 9, B: 2, C: 2, D: 4, E: 12, F: 2, G: 3, H: 2, I: 9, J: 1, K: 1, L: 4, M: 2,
+    N: 6, O: 8, P: 2, Q: 1, R: 6, S: 4, T: 6, U: 4, V: 2, W: 2, X: 1, Y: 2, Z: 1,
+    '?': 2,
 };
 const TILE_VALUES = {
-  A: 1, B: 3, C: 3, D: 2, E: 1, F: 4, G: 2, H: 4, I: 1, J: 8, K: 5, L: 1, M: 3,
-  N: 1, O: 1, P: 3, Q: 10, R: 1, S: 1, T: 1, U: 1, V: 4, W: 4, X: 8, Y: 4, Z: 10,
-  '?': 0,
+    A: 1, B: 3, C: 3, D: 2, E: 1, F: 4, G: 2, H: 4, I: 1, J: 8, K: 5, L: 1, M: 3,
+    N: 1, O: 1, P: 3, Q: 10, R: 1, S: 1, T: 1, U: 1, V: 4, W: 4, X: 8, Y: 4, Z: 10,
+    '?': 0,
 };
 const VOWELS = new Set(['A', 'E', 'I', 'O', 'U']);
 const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-
 // ============================================================================
 // DATA LOADING (base64 embedded, or fetched from DATA_URL, -> gunzip -> Map)
 // ============================================================================
 async function bytesToMap(bytes) {
-  if (typeof DecompressionStream === 'undefined') {
-    throw new Error('This browser does not support in-page decompression (DecompressionStream). Try an updated Chrome or Safari.');
-  }
-  let text;
-  if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
-    const ds = new DecompressionStream('gzip');
-    const stream = new Blob([bytes]).stream().pipeThrough(ds);
-    text = await new Response(stream).text();
-  } else {
-    text = new TextDecoder().decode(bytes);
-  }
-  const map = new Map();
-  let start = 0;
-  const n = text.length;
-  for (let i = 0; i <= n; i++) {
-    if (i === n || text.charCodeAt(i) === 10) {
-      if (i > start) {
-        const line = text.slice(start, i);
-        const sp = line.indexOf(' ');
-        if (sp > 0) {
-          map.set(line.slice(0, sp), parseInt(line.slice(sp + 1), 10) / 1000);
-        }
-      }
-      start = i + 1;
+    if (typeof DecompressionStream === 'undefined') {
+        throw new Error('This browser does not support in-page decompression (DecompressionStream). Try an updated Chrome or Safari.');
     }
-  }
-  return map;
+    let text;
+    if (bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) {
+        const ds = new DecompressionStream('gzip');
+        const stream = new Blob([bytes]).stream().pipeThrough(ds);
+        text = await new Response(stream).text();
+    }
+    else {
+        text = new TextDecoder().decode(bytes);
+    }
+    const map = new Map();
+    let start = 0;
+    const n = text.length;
+    for (let i = 0; i <= n; i++) {
+        if (i === n || text.charCodeAt(i) === 10) {
+            if (i > start) {
+                const line = text.slice(start, i);
+                const sp = line.indexOf(' ');
+                if (sp > 0) {
+                    map.set(line.slice(0, sp), parseInt(line.slice(sp + 1), 10) / 1000);
+                }
+            }
+            start = i + 1;
+        }
+    }
+    return map;
 }
-
 async function loadData() {
-  if (DATA_URL && DATA_URL.indexOf('PASTE_') !== 0) {
-    const resp = await fetch(DATA_URL);
-    if (!resp.ok) throw new Error('Could not fetch data file (' + resp.status + '). Check the DATA_URL and that the host allows cross-origin requests.');
-    const buf = await resp.arrayBuffer();
-    return bytesToMap(new Uint8Array(buf));
-  }
-  if (!DATA_B64 || DATA_B64.indexOf('_PLACEHOLDER') >= 0) {
-    throw new Error('No data source configured. Set DATA_URL near the top of the file to the URL where you hosted leaves_nwl23.gz, then republish.');
-  }
-  const bin = atob(DATA_B64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytesToMap(bytes);
+    if (DATA_URL && DATA_URL.indexOf('PASTE_') !== 0) {
+        const resp = await fetch(DATA_URL);
+        if (!resp.ok)
+            throw new Error('Could not fetch data file (' + resp.status + '). Check the DATA_URL and that the host allows cross-origin requests.');
+        const buf = await resp.arrayBuffer();
+        return bytesToMap(new Uint8Array(buf));
+    }
+    if (!DATA_B64 || DATA_B64.indexOf('_PLACEHOLDER') >= 0) {
+        throw new Error('No data source configured. Set DATA_URL near the top of the file to the URL where you hosted leaves_nwl23.gz, then republish.');
+    }
+    const bin = atob(DATA_B64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++)
+        bytes[i] = bin.charCodeAt(i);
+    return bytesToMap(bytes);
 }
-
 // Persistent review history (per browser). Fails quietly if storage absent.
 async function storeGet(key, fallback) {
-  try {
-    if (typeof window !== 'undefined' && window.storage) {
-      const r = await window.storage.get(key);
-      return r && r.value ? JSON.parse(r.value) : fallback;
+    try {
+        if (typeof window !== 'undefined' && window.storage) {
+            const r = await window.storage.get(key);
+            return r && r.value ? JSON.parse(r.value) : fallback;
+        }
+        if (typeof localStorage !== 'undefined') {
+            const v = localStorage.getItem('leavelab:' + key);
+            return v ? JSON.parse(v) : fallback;
+        }
+        return fallback;
     }
-    if (typeof localStorage !== 'undefined') {
-      const v = localStorage.getItem('leavelab:' + key);
-      return v ? JSON.parse(v) : fallback;
+    catch (e) {
+        return fallback;
     }
-    return fallback;
-  } catch (e) {
-    return fallback;
-  }
 }
 async function storeSet(key, val) {
-  try {
-    if (typeof window !== 'undefined' && window.storage) {
-      await window.storage.set(key, JSON.stringify(val));
-      return;
+    try {
+        if (typeof window !== 'undefined' && window.storage) {
+            await window.storage.set(key, JSON.stringify(val));
+            return;
+        }
+        if (typeof localStorage !== 'undefined') {
+            localStorage.setItem('leavelab:' + key, JSON.stringify(val));
+        }
     }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('leavelab:' + key, JSON.stringify(val));
-    }
-  } catch (e) {}
+    catch (e) { }
 }
-
 // Flag pathological duplicate racks. Returns a note string or null.
 // Trigger: holding > 50% of a consonant's bag supply, or > 1/3 of a vowel's.
 function rackWarning(rackTiles) {
-  const counts = {};
-  for (const c of rackTiles) if (c !== '?') counts[c] = (counts[c] || 0) + 1;
-  const flagged = [];
-  for (const [letter, held] of Object.entries(counts)) {
-    const supply = TILE_DIST[letter] || 0;
-    const isVowel = VOWELS.has(letter);
-    const threshold = isVowel ? supply / 3 : supply / 2;
-    if (held > threshold) flagged.push(`${held} ${letter}${held > 1 ? "'s" : ''}`);
-  }
-  if (flagged.length === 0) return null;
-  return `Heavy duplication (${flagged.join(', ')}). Leave values are unconditional and ignore playability, so the top-ranked leave here may not be the right play.`;
+    const counts = {};
+    for (const c of rackTiles)
+        if (c !== '?')
+            counts[c] = (counts[c] || 0) + 1;
+    const flagged = [];
+    for (const [letter, held] of Object.entries(counts)) {
+        const supply = TILE_DIST[letter] || 0;
+        const isVowel = VOWELS.has(letter);
+        const threshold = isVowel ? supply / 3 : supply / 2;
+        if (held > threshold)
+            flagged.push(`${held} ${letter}${held > 1 ? "'s" : ''}`);
+    }
+    if (flagged.length === 0)
+        return null;
+    return `Heavy duplication (${flagged.join(', ')}). Leave values are unconditional and ignore playability, so the top-ranked leave here may not be the right play.`;
 }
-
 // ============================================================================
 // LEAVE HELPERS
 // ============================================================================
 // File key format: blanks first (as '?'), then letters alphabetical.
 function normKey(tiles) {
-  let blanks = 0;
-  const letters = [];
-  for (const c of tiles) {
-    if (c === '?') blanks++;
-    else letters.push(c);
-  }
-  letters.sort();
-  let out = '';
-  for (let i = 0; i < blanks; i++) out += '?';
-  return out + letters.join('');
+    let blanks = 0;
+    const letters = [];
+    for (const c of tiles) {
+        if (c === '?')
+            blanks++;
+        else
+            letters.push(c);
+    }
+    letters.sort();
+    let out = '';
+    for (let i = 0; i < blanks; i++)
+        out += '?';
+    return out + letters.join('');
 }
-
 function randomRack() {
-  const bag = [];
-  for (const [t, c] of Object.entries(TILE_DIST)) for (let i = 0; i < c; i++) bag.push(t);
-  for (let i = bag.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [bag[i], bag[j]] = [bag[j], bag[i]];
-  }
-  return bag.slice(0, 7);
+    const bag = [];
+    for (const [t, c] of Object.entries(TILE_DIST))
+        for (let i = 0; i < c; i++)
+            bag.push(t);
+    for (let i = bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bag[i], bag[j]] = [bag[j], bag[i]];
+    }
+    return bag.slice(0, 7);
 }
-
 // All unique subset-leaves of a rack (array of tiles), sizes [minS, maxS], found in map.
 function enumerateLeaves(rackTiles, map, minS, maxS) {
-  const n = rackTiles.length;
-  const out = [];
-  const seen = new Set();
-  for (let mask = 1; mask < (1 << n); mask++) {
-    const subset = [];
-    for (let i = 0; i < n; i++) if (mask & (1 << i)) subset.push(rackTiles[i]);
-    if (subset.length < minS || subset.length > maxS) continue;
-    const key = normKey(subset);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const v = map.get(key);
-    if (v !== undefined) out.push({ leave: key, value: v });
-  }
-  return out;
+    const n = rackTiles.length;
+    const out = [];
+    const seen = new Set();
+    for (let mask = 1; mask < (1 << n); mask++) {
+        const subset = [];
+        for (let i = 0; i < n; i++)
+            if (mask & (1 << i))
+                subset.push(rackTiles[i]);
+        if (subset.length < minS || subset.length > maxS)
+            continue;
+        const key = normKey(subset);
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        const v = map.get(key);
+        if (v !== undefined)
+            out.push({ leave: key, value: v });
+    }
+    return out;
 }
-
 // All size-k multisets (combinations with repetition) of an alphabet.
 function multisets(alphabet, k) {
-  const res = [];
-  const cur = [];
-  const rec = (start) => {
-    if (cur.length === k) { res.push(cur.slice()); return; }
-    for (let i = start; i < alphabet.length; i++) {
-      cur.push(alphabet[i]);
-      rec(i);
-      cur.pop();
-    }
-  };
-  rec(0);
-  return res;
+    const res = [];
+    const cur = [];
+    const rec = (start) => {
+        if (cur.length === k) {
+            res.push(cur.slice());
+            return;
+        }
+        for (let i = start; i < alphabet.length; i++) {
+            cur.push(alphabet[i]);
+            rec(i);
+            cur.pop();
+        }
+    };
+    rec(0);
+    return res;
 }
-
 // X followed by k wildcards -> all (k+1)-tile leaves containing X, ranked.
 function wildcardLeaves(x, k, map) {
-  const alphabet = [...LETTERS, '?'];
-  const seen = new Set();
-  const rows = [];
-  for (const ms of multisets(alphabet, k)) {
-    const key = normKey([x, ...ms]);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const v = map.get(key);
-    if (v !== undefined) rows.push({ leave: key, value: v });
-  }
-  rows.sort((a, b) => b.value - a.value);
-  return rows;
+    const alphabet = [...LETTERS, '?'];
+    const seen = new Set();
+    const rows = [];
+    for (const ms of multisets(alphabet, k)) {
+        const key = normKey([x, ...ms]);
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        const v = map.get(key);
+        if (v !== undefined)
+            rows.push({ leave: key, value: v });
+    }
+    rows.sort((a, b) => b.value - a.value);
+    return rows;
 }
-
 function complementTiles(selectedIdx, rackTiles) {
-  const played = [];
-  for (let i = 0; i < rackTiles.length; i++) if (!selectedIdx.has(i)) played.push(rackTiles[i]);
-  return played;
+    const played = [];
+    for (let i = 0; i < rackTiles.length; i++)
+        if (!selectedIdx.has(i))
+            played.push(rackTiles[i]);
+    return played;
 }
-
 function hasDuplicate(key) {
-  const seen = new Set();
-  for (const c of key) {
-    if (seen.has(c)) return true;
-    seen.add(c);
-  }
-  return false;
+    const seen = new Set();
+    for (const c of key) {
+        if (seen.has(c))
+            return true;
+        seen.add(c);
+    }
+    return false;
 }
 function countVowels(key) {
-  let v = 0;
-  for (const c of key) if (VOWELS.has(c)) v++;
-  return v;
+    let v = 0;
+    for (const c of key)
+        if (VOWELS.has(c))
+            v++;
+    return v;
 }
 function countConsonants(key) {
-  let c = 0;
-  for (const ch of key) if (ch !== '?' && !VOWELS.has(ch)) c++;
-  return c;
+    let c = 0;
+    for (const ch of key)
+        if (ch !== '?' && !VOWELS.has(ch))
+            c++;
+    return c;
 }
-
 function fmt(v) {
-  return (v >= 0 ? '+' : '') + v.toFixed(1);
+    return (v >= 0 ? '+' : '') + v.toFixed(1);
 }
 function randInt(a, b) {
-  return Math.floor(Math.random() * (b - a + 1)) + a;
+    return Math.floor(Math.random() * (b - a + 1)) + a;
 }
-
 function downloadCSV(filename, rows) {
-  const csv = 'leave,value\n' + rows.map((r) => `${r.leave},${r.value.toFixed(3)}`).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+    const csv = 'leave,value\n' + rows.map((r) => `${r.leave},${r.value.toFixed(3)}`).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
-
 // ============================================================================
 // TILE COMPONENTS
 // ============================================================================
 function Tile({ letter, size = 36, selected, dim, onClick }) {
-  const isBlank = letter === '?';
-  const val = TILE_VALUES[letter] ?? 0;
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        width: size,
-        height: size,
-        background: selected
-          ? 'linear-gradient(145deg,#e9d39a,#dcc078)'
-          : dim
-          ? 'linear-gradient(145deg,#efe7d2,#e6dcc2)'
-          : 'linear-gradient(145deg,#f5e9c9,#ecdcaf)',
-        border: selected ? '2px solid #8b2e2e' : '1px solid #b8a878',
-        borderRadius: Math.max(2, size * 0.08),
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        position: 'relative',
-        boxShadow: dim ? 'none' : '1px 2px 3px rgba(89,67,37,0.2), inset 0 1px 0 rgba(255,255,255,0.5)',
-        fontFamily: "'Newsreader', Georgia, serif",
-        color: dim ? '#8a7e6a' : '#2b1f13',
-        flexShrink: 0,
-        cursor: onClick ? 'pointer' : 'default',
-        opacity: dim ? 0.55 : 1,
-        transition: 'all 0.1s',
-        userSelect: 'none',
-      }}
-    >
-      <span style={{ fontSize: size * 0.55, fontWeight: 500, lineHeight: 1 }}>{isBlank ? '' : letter}</span>
-      {!isBlank && (
-        <span
-          style={{
-            position: 'absolute',
-            bottom: size * 0.04,
-            right: size * 0.07,
-            fontSize: size * 0.24,
-            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-            color: '#5a4222',
-          }}
-        >
-          {val}
-        </span>
-      )}
-    </div>
-  );
+    const isBlank = letter === '?';
+    const val = TILE_VALUES[letter] ?? 0;
+    return (React.createElement("div", { onClick: onClick, style: {
+            width: size,
+            height: size,
+            background: selected
+                ? 'linear-gradient(145deg,#e9d39a,#dcc078)'
+                : dim
+                    ? 'linear-gradient(145deg,#efe7d2,#e6dcc2)'
+                    : 'linear-gradient(145deg,#f5e9c9,#ecdcaf)',
+            border: selected ? '2px solid #8b2e2e' : '1px solid #b8a878',
+            borderRadius: Math.max(2, size * 0.08),
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            boxShadow: dim ? 'none' : '1px 2px 3px rgba(89,67,37,0.2), inset 0 1px 0 rgba(255,255,255,0.5)',
+            fontFamily: "'Newsreader', Georgia, serif",
+            color: dim ? '#8a7e6a' : '#2b1f13',
+            flexShrink: 0,
+            cursor: onClick ? 'pointer' : 'default',
+            opacity: dim ? 0.55 : 1,
+            transition: 'all 0.1s',
+            userSelect: 'none',
+        } },
+        React.createElement("span", { style: { fontSize: size * 0.55, fontWeight: 500, lineHeight: 1 } }, isBlank ? '' : letter),
+        !isBlank && (React.createElement("span", { style: {
+                position: 'absolute',
+                bottom: size * 0.04,
+                right: size * 0.07,
+                fontSize: size * 0.24,
+                fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                color: '#5a4222',
+            } }, val))));
 }
-
 function TileRow({ letters, size = 30, gap = 4 }) {
-  const arr = typeof letters === 'string' ? letters.split('') : letters;
-  return (
-    <div style={{ display: 'inline-flex', gap, flexWrap: 'nowrap' }}>
-      {arr.map((l, i) => (
-        <Tile key={i} letter={l} size={size} />
-      ))}
-    </div>
-  );
+    const arr = typeof letters === 'string' ? letters.split('') : letters;
+    return (React.createElement("div", { style: { display: 'inline-flex', gap, flexWrap: 'nowrap' } }, arr.map((l, i) => (React.createElement(Tile, { key: i, letter: l, size: size })))));
 }
-
 // ============================================================================
 // APP
 // ============================================================================
 function LeaveLab() {
-  const [tab, setTab] = useState('equity');
-  const [map, setMap] = useState(null);
-  const [error, setError] = useState(null);
-  const sortedRef = useRef(null); // lazy sorted-desc array for Cheat Sheets
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const m = await loadData();
-        if (alive) setMap(m);
-      } catch (e) {
-        if (alive) setError(e.message || String(e));
-      }
-    })();
-    return () => {
-      alive = false;
+    const [tab, setTab] = useState('equity');
+    const [map, setMap] = useState(null);
+    const [error, setError] = useState(null);
+    const sortedRef = useRef(null); // lazy sorted-desc array for Cheat Sheets
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            try {
+                const m = await loadData();
+                if (alive)
+                    setMap(m);
+            }
+            catch (e) {
+                if (alive)
+                    setError(e.message || String(e));
+            }
+        })();
+        return () => {
+            alive = false;
+        };
+    }, []);
+    const styles = {
+        root: {
+            minHeight: '100vh',
+            background: '#faf6ec',
+            color: '#1f1a14',
+            fontFamily: "'Newsreader', Georgia, serif",
+        },
+        container: { maxWidth: 820, margin: '0 auto', padding: '20px 14px 80px' },
+        title: { fontSize: 30, fontWeight: 500, fontStyle: 'italic', margin: 0, letterSpacing: '-0.02em' },
+        sub: {
+            fontSize: 11,
+            color: '#6b5d54',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            marginTop: 6,
+            fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+        },
+        tabs: { display: 'flex', gap: 2, marginTop: 18, marginBottom: 22, borderBottom: '1px solid #d9d0c0', flexWrap: 'wrap' },
+        tab: (a) => ({
+            padding: '9px 14px',
+            background: 'transparent',
+            border: 'none',
+            borderBottom: a ? '2px solid #8b2e2e' : '2px solid transparent',
+            color: a ? '#1f1a14' : '#6b5d54',
+            fontSize: 15,
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+            marginBottom: -1,
+            fontWeight: a ? 600 : 400,
+        }),
     };
-  }, []);
-
-  const styles = {
-    root: {
-      minHeight: '100vh',
-      background: '#faf6ec',
-      color: '#1f1a14',
-      fontFamily: "'Newsreader', Georgia, serif",
-    },
-    container: { maxWidth: 820, margin: '0 auto', padding: '20px 14px 80px' },
-    title: { fontSize: 30, fontWeight: 500, fontStyle: 'italic', margin: 0, letterSpacing: '-0.02em' },
-    sub: {
-      fontSize: 11,
-      color: '#6b5d54',
-      letterSpacing: '0.12em',
-      textTransform: 'uppercase',
-      marginTop: 6,
-      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-    },
-    tabs: { display: 'flex', gap: 2, marginTop: 18, marginBottom: 22, borderBottom: '1px solid #d9d0c0', flexWrap: 'wrap' },
-    tab: (a) => ({
-      padding: '9px 14px',
-      background: 'transparent',
-      border: 'none',
-      borderBottom: a ? '2px solid #8b2e2e' : '2px solid transparent',
-      color: a ? '#1f1a14' : '#6b5d54',
-      fontSize: 15,
-      fontFamily: 'inherit',
-      cursor: 'pointer',
-      marginBottom: -1,
-      fontWeight: a ? 600 : 400,
-    }),
-  };
-
-  if (error) {
-    return (
-      <div style={styles.root}>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" />
-        <div style={styles.container}>
-          <h1 style={styles.title}>Leave Lab</h1>
-          <div style={{ marginTop: 20, padding: 16, background: '#faeeee', border: '1px solid #c98585', borderRadius: 6, color: '#8b2e2e' }}>
-            Could not load data: {error}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!map) {
-    return (
-      <div style={styles.root}>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" />
-        <div style={{ ...styles.container, textAlign: 'center', paddingTop: 80 }}>
-          <h1 style={styles.title}>Leave Lab</h1>
-          <div style={{ marginTop: 24, color: '#6b5d54', fontSize: 15 }}>
-            Loading 914,624 leaves...
-            <div style={{ fontSize: 12, marginTop: 8, color: '#a89a86' }}>
-              Decompressing the full NWL23 set. First load can take a few seconds on mobile.
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={styles.root}>
-      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" />
-      <div style={styles.container}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
-          <div>
-            <h1 style={styles.title}>Leave Lab</h1>
-            <div style={styles.sub}>NWL23 real leave values</div>
-          </div>
-          <div style={{ fontSize: 11, color: '#a89a86', fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-            {map.size.toLocaleString()} leaves · {BUILD}
-          </div>
-        </div>
-
-        <nav style={styles.tabs}>
-          {[
-            ['equity', 'Equity'],
-            ['leaves', 'Leaves'],
-            ['analyze', 'Analyze'],
-            ['sheets', 'Cheat Sheets'],
-          ].map(([k, label]) => (
-            <button key={k} style={styles.tab(tab === k)} onClick={() => setTab(k)}>
-              {label}
-            </button>
-          ))}
-        </nav>
-
-        {tab === 'equity' && <EquityTab map={map} />}
-        {tab === 'leaves' && <LeavesTab map={map} />}
-        {tab === 'analyze' && <AnalyzeTab map={map} />}
-        {tab === 'sheets' && <SheetsTab map={map} sortedRef={sortedRef} />}
-      </div>
-    </div>
-  );
+    if (error) {
+        return (React.createElement("div", { style: styles.root },
+            React.createElement("link", { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" }),
+            React.createElement("div", { style: styles.container },
+                React.createElement("h1", { style: styles.title }, "Leave Lab"),
+                React.createElement("div", { style: { marginTop: 20, padding: 16, background: '#faeeee', border: '1px solid #c98585', borderRadius: 6, color: '#8b2e2e' } },
+                    "Could not load data: ",
+                    error))));
+    }
+    if (!map) {
+        return (React.createElement("div", { style: styles.root },
+            React.createElement("link", { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" }),
+            React.createElement("div", { style: { ...styles.container, textAlign: 'center', paddingTop: 80 } },
+                React.createElement("h1", { style: styles.title }, "Leave Lab"),
+                React.createElement("div", { style: { marginTop: 24, color: '#6b5d54', fontSize: 15 } },
+                    "Loading 914,624 leaves...",
+                    React.createElement("div", { style: { fontSize: 12, marginTop: 8, color: '#a89a86' } }, "Decompressing the full NWL23 set. First load can take a few seconds on mobile.")))));
+    }
+    return (React.createElement("div", { style: styles.root },
+        React.createElement("link", { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;1,500&family=JetBrains+Mono:wght@400;500&display=swap" }),
+        React.createElement("div", { style: styles.container },
+            React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 } },
+                React.createElement("div", null,
+                    React.createElement("h1", { style: styles.title }, "Leave Lab"),
+                    React.createElement("div", { style: styles.sub }, "NWL23 real leave values")),
+                React.createElement("div", { style: { fontSize: 11, color: '#a89a86', fontFamily: "'JetBrains Mono', ui-monospace, monospace" } },
+                    map.size.toLocaleString(),
+                    " leaves \u00B7 ",
+                    BUILD)),
+            React.createElement("nav", { style: styles.tabs }, [
+                ['equity', 'Equity'],
+                ['leaves', 'Leaves'],
+                ['analyze', 'Analyze'],
+                ['sheets', 'Cheat Sheets'],
+            ].map(([k, label]) => (React.createElement("button", { key: k, style: styles.tab(tab === k), onClick: () => setTab(k) }, label)))),
+            tab === 'equity' && React.createElement(EquityTab, { map: map }),
+            tab === 'leaves' && React.createElement(LeavesTab, { map: map }),
+            tab === 'analyze' && React.createElement(AnalyzeTab, { map: map }),
+            tab === 'sheets' && React.createElement(SheetsTab, { map: map, sortedRef: sortedRef }))));
 }
-
 // ============================================================================
 // EQUITY TAB — drill: two real leaves, hypothetical scores, gap in [1,7]
 // ============================================================================
 const EQ_MIN_LEAVE_GAP = 4;
 const EQ_MAX_LEAVE_GAP = 18;
-
 function generateEquity(map) {
-  for (let attempt = 0; attempt < 800; attempt++) {
-    const rack = randomRack();
-    const subs = enumerateLeaves(rack, map, 1, 6);
-    if (subs.length < 2) continue;
-    const i = Math.floor(Math.random() * subs.length);
-    let j = Math.floor(Math.random() * subs.length);
-    if (i === j) continue;
-    let A = subs[i], B = subs[j];
-    if (A.value < B.value) { const t = A; A = B; B = t; } // A = better leave
-    const leaveGap = A.value - B.value;
-    if (leaveGap < EQ_MIN_LEAVE_GAP || leaveGap > EQ_MAX_LEAVE_GAP) continue;
-
-    const target = 1 + Math.random() * 6; // desired equity gap in [1,7]
-    const aWins = Math.random() < 0.5;
-    // Better leave (A) always scores LESS; worse leave (B) scores MORE.
-    let scoreGap;
-    if (aWins) {
-      scoreGap = Math.round(leaveGap - target);
-      if (scoreGap < 1) continue;
-    } else {
-      scoreGap = Math.round(leaveGap + target);
+    for (let attempt = 0; attempt < 800; attempt++) {
+        const rack = randomRack();
+        const subs = enumerateLeaves(rack, map, 1, 6);
+        if (subs.length < 2)
+            continue;
+        const i = Math.floor(Math.random() * subs.length);
+        let j = Math.floor(Math.random() * subs.length);
+        if (i === j)
+            continue;
+        let A = subs[i], B = subs[j];
+        if (A.value < B.value) {
+            const t = A;
+            A = B;
+            B = t;
+        } // A = better leave
+        const leaveGap = A.value - B.value;
+        if (leaveGap < EQ_MIN_LEAVE_GAP || leaveGap > EQ_MAX_LEAVE_GAP)
+            continue;
+        const target = 1 + Math.random() * 6; // desired equity gap in [1,7]
+        const aWins = Math.random() < 0.5;
+        // Better leave (A) always scores LESS; worse leave (B) scores MORE.
+        let scoreGap;
+        if (aWins) {
+            scoreGap = Math.round(leaveGap - target);
+            if (scoreGap < 1)
+                continue;
+        }
+        else {
+            scoreGap = Math.round(leaveGap + target);
+        }
+        // A play scores at least the face value of the tiles it plays. The equity
+        // gap depends only on scoreGap and leaveGap (not the base score), so we can
+        // set the base to satisfy both face-value floors plus a modest board bonus.
+        const playedA = complementLeave(A.leave, rack);
+        const playedB = complementLeave(B.leave, rack);
+        const faceA = faceValue(playedA);
+        const faceB = faceValue(playedB);
+        const minScoreA = Math.max(faceA, faceB - scoreGap);
+        const scoreA = minScoreA + randInt(0, 12); // bonus: premiums, crosswords
+        const scoreB = scoreA + scoreGap;
+        if (scoreB > 60)
+            continue; // keep scores plausible
+        const eqA = scoreA + A.value;
+        const eqB = scoreB + B.value;
+        const diff = Math.abs(eqA - eqB);
+        if (diff < 1 || diff > 7)
+            continue;
+        const optA = { leave: A.leave, value: A.value, score: scoreA, equity: eqA, played: playedA };
+        const optB = { leave: B.leave, value: B.value, score: scoreB, equity: eqB, played: playedB };
+        const opts = Math.random() < 0.5 ? [optA, optB] : [optB, optA];
+        return { rack: normKey(rack), opts };
     }
-    // A play scores at least the face value of the tiles it plays. The equity
-    // gap depends only on scoreGap and leaveGap (not the base score), so we can
-    // set the base to satisfy both face-value floors plus a modest board bonus.
-    const playedA = complementLeave(A.leave, rack);
-    const playedB = complementLeave(B.leave, rack);
-    const faceA = faceValue(playedA);
-    const faceB = faceValue(playedB);
-    const minScoreA = Math.max(faceA, faceB - scoreGap);
-    const scoreA = minScoreA + randInt(0, 12); // bonus: premiums, crosswords
-    const scoreB = scoreA + scoreGap;
-    if (scoreB > 60) continue; // keep scores plausible
-    const eqA = scoreA + A.value;
-    const eqB = scoreB + B.value;
-    const diff = Math.abs(eqA - eqB);
-    if (diff < 1 || diff > 7) continue;
-
-    const optA = { leave: A.leave, value: A.value, score: scoreA, equity: eqA, played: playedA };
-    const optB = { leave: B.leave, value: B.value, score: scoreB, equity: eqB, played: playedB };
-    const opts = Math.random() < 0.5 ? [optA, optB] : [optB, optA];
-    return { rack: normKey(rack), opts };
-  }
-  return null;
+    return null;
 }
-
 // complement given a leave KEY (not indices): remove leave tiles from rack
 function complementLeave(leaveKey, rackTiles) {
-  const rem = [...rackTiles];
-  for (const c of leaveKey) {
-    const idx = rem.indexOf(c);
-    if (idx >= 0) rem.splice(idx, 1);
-  }
-  return normKey(rem);
+    const rem = [...rackTiles];
+    for (const c of leaveKey) {
+        const idx = rem.indexOf(c);
+        if (idx >= 0)
+            rem.splice(idx, 1);
+    }
+    return normKey(rem);
 }
-
 // Minimum possible score of a play = sum of face values of tiles played
 // (blank = 0). Board multipliers and crosswords only ever add to this.
 function faceValue(tiles) {
-  let s = 0;
-  for (const c of tiles) s += TILE_VALUES[c] || 0;
-  return s;
+    let s = 0;
+    for (const c of tiles)
+        s += TILE_VALUES[c] || 0;
+    return s;
 }
-
 function EquityTab({ map }) {
-  const [q, setQ] = useState(null);
-  const [pick, setPick] = useState(null);
-  const [mistakes, setMistakes] = useState([]);
-  const [showMistakes, setShowMistakes] = useState(false);
-
-  useEffect(() => {
-    (async () => setMistakes(await storeGet('leavelab-equity-mistakes', [])))();
-  }, []);
-
-  const next = (specificQ) => {
-    setPick(null);
-    setQ(specificQ || generateEquity(map));
-  };
-  useEffect(() => {
-    if (!q) next();
-  }, []);
-
-  if (!q) return <Empty>Generating a question...</Empty>;
-
-  const best = q.opts[0].equity >= q.opts[1].equity ? q.opts[0] : q.opts[1];
-  const better = q.opts[0].value >= q.opts[1].value ? q.opts[0] : q.opts[1];
-  const worse = better === q.opts[0] ? q.opts[1] : q.opts[0];
-  const leaveGap = better.value - worse.value;
-  const revealed = pick !== null;
-  const correct = revealed && pick === best;
-  const warn = rackWarning(q.rack.split(''));
-
-  const choose = (o) => {
-    if (revealed) return;
-    setPick(o);
-    if (o !== best) {
-      setMistakes((m) => {
-        const nm = [{ rack: q.rack, opts: q.opts }, ...m].slice(0, 40);
-        storeSet('leavelab-equity-mistakes', nm);
-        return nm;
-      });
-    }
-  };
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <button onClick={() => next()} style={btnPrimary}>New question</button>
-        {mistakes.length > 0 && (
-          <button onClick={() => setShowMistakes((v) => !v)} style={btnGhost}>
-            Mistakes: {mistakes.length} {showMistakes ? '\u25B2' : '\u25BC'}
-          </button>
-        )}
-      </div>
-
-      {showMistakes && mistakes.length > 0 && (
-        <Card style={{ marginBottom: 14 }}>
-          <Label>Questions you missed. Tap Retry to attempt again.</Label>
-          <div style={{ marginTop: 8 }}>
-            {mistakes.map((m, idx) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                  <TileRow letters={m.rack} size={22} gap={2} />
-                  <div style={{ fontSize: 12, color: '#6b5d54', marginTop: 4, fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                    {m.opts[0].leave} ({m.opts[0].score}) vs {m.opts[1].leave} ({m.opts[1].score})
-                  </div>
-                </div>
-                <button onClick={() => { setShowMistakes(false); next(m); }} style={btnSmall}>Retry</button>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      <Card>
-        <Label>Your rack</Label>
-        <div style={{ marginTop: 8 }}>
-          <TileRow letters={q.rack} size={40} gap={4} />
-        </div>
-        {warn && <WarnNote text={warn} />}
-        <div style={{ marginTop: 12, fontSize: 14, color: '#6b5d54', fontStyle: 'italic' }}>
-          Which play has higher equity? (score plus leave value)
-        </div>
-      </Card>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 }}>
-        {q.opts.map((o, i) => {
-          const isBest = o === best;
-          const isPick = o === pick;
-          let bd = '#e4dcc9', bg = '#fff';
-          if (revealed) {
-            if (isBest) { bd = '#3d6b3d'; bg = '#f1f7ee'; }
-            else if (isPick) { bd = '#8b2e2e'; bg = '#faeeee'; }
-          }
-          return (
-            <button
-              key={i}
-              onClick={() => choose(o)}
-              disabled={revealed}
-              style={{
-                background: bg,
-                border: `1.5px solid ${bd}`,
-                borderRadius: 6,
-                padding: '14px 12px',
-                textAlign: 'left',
-                fontFamily: 'inherit',
-                cursor: revealed ? 'default' : 'pointer',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-                <span style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#8a7e70', fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                  Play {i + 1}
-                </span>
-                <span style={{ fontSize: 22, fontWeight: 600, fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                  {o.score}
-                </span>
-              </div>
-              <div style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#8a7e70', marginBottom: 3, fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>Play</div>
-              <TileRow letters={o.played} size={22} gap={2} />
-              <div style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#8a7e70', margin: '8px 0 3px', fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>Leave</div>
-              <TileRow letters={o.leave} size={26} gap={2} />
-              {revealed && (
-                <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed #d9d0c0', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 12 }}>
-                  <Row k="score" v={o.score.toFixed(0)} />
-                  <Row k="leave" v={fmt(o.value)} c={o.value < 0 ? '#8b2e2e' : '#3d6b3d'} />
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3, paddingTop: 3, borderTop: '1px solid #e4dcc9', fontWeight: 600, color: isBest ? '#3d6b3d' : '#1f1a14' }}>
-                    <span>equity</span>
-                    <span>{o.equity.toFixed(1)}</span>
-                  </div>
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {revealed && (
-        <div style={{ marginTop: 16, padding: '14px 16px', background: correct ? '#f1f7ee' : '#faeeee', border: `1px solid ${correct ? '#8ba889' : '#c98585'}`, borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 500, color: correct ? '#3d6b3d' : '#8b2e2e' }}>
-              {correct ? 'Correct.' : 'Better play was the other one.'}
-            </div>
-            <div style={{ fontSize: 13, color: '#6b5d54', marginTop: 3 }}>
-              You need to score {leaveGap.toFixed(1)} more points to justify leaving {worse.leave} instead of {better.leave}.
-            </div>
-          </div>
-          <button onClick={() => next()} style={btnPrimary}>Next</button>
-        </div>
-      )}
-    </div>
-  );
+    const [q, setQ] = useState(null);
+    const [pick, setPick] = useState(null);
+    const [mistakes, setMistakes] = useState([]);
+    const [showMistakes, setShowMistakes] = useState(false);
+    useEffect(() => {
+        (async () => setMistakes(await storeGet('leavelab-equity-mistakes', [])))();
+    }, []);
+    const next = (specificQ) => {
+        setPick(null);
+        setQ(specificQ || generateEquity(map));
+    };
+    useEffect(() => {
+        if (!q)
+            next();
+    }, []);
+    if (!q)
+        return React.createElement(Empty, null, "Generating a question...");
+    const best = q.opts[0].equity >= q.opts[1].equity ? q.opts[0] : q.opts[1];
+    const better = q.opts[0].value >= q.opts[1].value ? q.opts[0] : q.opts[1];
+    const worse = better === q.opts[0] ? q.opts[1] : q.opts[0];
+    const leaveGap = better.value - worse.value;
+    const revealed = pick !== null;
+    const correct = revealed && pick === best;
+    const warn = rackWarning(q.rack.split(''));
+    const choose = (o) => {
+        if (revealed)
+            return;
+        setPick(o);
+        if (o !== best) {
+            setMistakes((m) => {
+                const nm = [{ rack: q.rack, opts: q.opts }, ...m].slice(0, 40);
+                storeSet('leavelab-equity-mistakes', nm);
+                return nm;
+            });
+        }
+    };
+    return (React.createElement("div", null,
+        React.createElement("div", { style: { display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' } },
+            React.createElement("button", { onClick: () => next(), style: btnPrimary }, "New question"),
+            mistakes.length > 0 && (React.createElement("button", { onClick: () => setShowMistakes((v) => !v), style: btnGhost },
+                "Mistakes: ",
+                mistakes.length,
+                " ",
+                showMistakes ? '\u25B2' : '\u25BC'))),
+        showMistakes && mistakes.length > 0 && (React.createElement(Card, { style: { marginBottom: 14 } },
+            React.createElement(Label, null, "Questions you missed. Tap Retry to attempt again."),
+            React.createElement("div", { style: { marginTop: 8 } }, mistakes.map((m, idx) => (React.createElement("div", { key: idx, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' } },
+                React.createElement("div", { style: { flex: '1 1 auto', minWidth: 0 } },
+                    React.createElement(TileRow, { letters: m.rack, size: 22, gap: 2 }),
+                    React.createElement("div", { style: { fontSize: 12, color: '#6b5d54', marginTop: 4, fontFamily: "'JetBrains Mono', ui-monospace, monospace" } },
+                        m.opts[0].leave,
+                        " (",
+                        m.opts[0].score,
+                        ") vs ",
+                        m.opts[1].leave,
+                        " (",
+                        m.opts[1].score,
+                        ")")),
+                React.createElement("button", { onClick: () => { setShowMistakes(false); next(m); }, style: btnSmall }, "Retry"))))))),
+        React.createElement(Card, null,
+            React.createElement(Label, null, "Your rack"),
+            React.createElement("div", { style: { marginTop: 8 } },
+                React.createElement(TileRow, { letters: q.rack, size: 40, gap: 4 })),
+            warn && React.createElement(WarnNote, { text: warn }),
+            React.createElement("div", { style: { marginTop: 12, fontSize: 14, color: '#6b5d54', fontStyle: 'italic' } }, "Which play has higher equity? (score plus leave value)")),
+        React.createElement("div", { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14 } }, q.opts.map((o, i) => {
+            const isBest = o === best;
+            const isPick = o === pick;
+            let bd = '#e4dcc9', bg = '#fff';
+            if (revealed) {
+                if (isBest) {
+                    bd = '#3d6b3d';
+                    bg = '#f1f7ee';
+                }
+                else if (isPick) {
+                    bd = '#8b2e2e';
+                    bg = '#faeeee';
+                }
+            }
+            return (React.createElement("button", { key: i, onClick: () => choose(o), disabled: revealed, style: {
+                    background: bg,
+                    border: `1.5px solid ${bd}`,
+                    borderRadius: 6,
+                    padding: '14px 12px',
+                    textAlign: 'left',
+                    fontFamily: 'inherit',
+                    cursor: revealed ? 'default' : 'pointer',
+                } },
+                React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 } },
+                    React.createElement("span", { style: { fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#8a7e70', fontFamily: "'JetBrains Mono', ui-monospace, monospace" } },
+                        "Play ",
+                        i + 1),
+                    React.createElement("span", { style: { fontSize: 22, fontWeight: 600, fontFamily: "'JetBrains Mono', ui-monospace, monospace" } }, o.score)),
+                React.createElement("div", { style: { fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#8a7e70', marginBottom: 3, fontFamily: "'JetBrains Mono', ui-monospace, monospace" } }, "Play"),
+                React.createElement(TileRow, { letters: o.played, size: 22, gap: 2 }),
+                React.createElement("div", { style: { fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#8a7e70', margin: '8px 0 3px', fontFamily: "'JetBrains Mono', ui-monospace, monospace" } }, "Leave"),
+                React.createElement(TileRow, { letters: o.leave, size: 26, gap: 2 }),
+                revealed && (React.createElement("div", { style: { marginTop: 10, paddingTop: 8, borderTop: '1px dashed #d9d0c0', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 12 } },
+                    React.createElement(Row, { k: "score", v: o.score.toFixed(0) }),
+                    React.createElement(Row, { k: "leave", v: fmt(o.value), c: o.value < 0 ? '#8b2e2e' : '#3d6b3d' }),
+                    React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', marginTop: 3, paddingTop: 3, borderTop: '1px solid #e4dcc9', fontWeight: 600, color: isBest ? '#3d6b3d' : '#1f1a14' } },
+                        React.createElement("span", null, "equity"),
+                        React.createElement("span", null, o.equity.toFixed(1)))))));
+        })),
+        revealed && (React.createElement("div", { style: { marginTop: 16, padding: '14px 16px', background: correct ? '#f1f7ee' : '#faeeee', border: `1px solid ${correct ? '#8ba889' : '#c98585'}`, borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 } },
+            React.createElement("div", null,
+                React.createElement("div", { style: { fontSize: 17, fontWeight: 500, color: correct ? '#3d6b3d' : '#8b2e2e' } }, correct ? 'Correct.' : 'Better play was the other one.'),
+                React.createElement("div", { style: { fontSize: 13, color: '#6b5d54', marginTop: 3 } },
+                    "You need to score ",
+                    leaveGap.toFixed(1),
+                    " more points to justify leaving ",
+                    worse.leave,
+                    " instead of ",
+                    better.leave,
+                    ".")),
+            React.createElement("button", { onClick: () => next(), style: btnPrimary }, "Next")))));
 }
-
 // ============================================================================
 // LEAVES TAB — pick your leave by tapping tiles
 // ============================================================================
 function LeavesTab({ map }) {
-  const [rack, setRack] = useState(null);
-  const [sel, setSel] = useState(new Set());
-  const [submitted, setSubmitted] = useState(false);
-  const [mistakes, setMistakes] = useState([]);
-  const [showMistakes, setShowMistakes] = useState(false);
-
-  const deal = (specificRack) => {
-    setRack(specificRack ? [...specificRack] : randomRack());
-    setSel(new Set());
-    setSubmitted(false);
-  };
-  useEffect(() => {
-    if (!rack) deal();
-  }, []);
-  useEffect(() => {
-    (async () => setMistakes(await storeGet('leavelab-leaves-mistakes', [])))();
-  }, []);
-
-  // All hooks must run before any early return (Rules of Hooks).
-  const ranked = useMemo(() => {
-    if (!submitted || !rack) return null;
-    return enumerateLeaves(rack, map, 1, 6).sort((a, b) => b.value - a.value);
-  }, [submitted, rack, map]);
-
-  const pickKey = useMemo(() => {
-    if (!rack) return '';
-    const tiles = [...sel].map((i) => rack[i]);
-    return normKey(tiles);
-  }, [sel, rack]);
-
-  if (!rack) return <Empty>Dealing...</Empty>;
-
-  const mono = "'JetBrains Mono', ui-monospace, monospace";
-
-  const toggle = (i) => {
-    if (submitted) return;
-    const s = new Set(sel);
-    if (s.has(i)) s.delete(i);
-    else s.add(i);
-    setSel(s);
-  };
-
-  const submit = () => {
-    if (sel.size < 1 || sel.size > 6) return;
-    setSubmitted(true);
-    const all = enumerateLeaves(rack, map, 1, 6).sort((a, b) => b.value - a.value);
-    const bestKey = all.length ? all[0].leave : null;
-    if (bestKey && pickKey !== bestKey) {
-      setMistakes((m) => {
-        const entry = { rack: [...rack], bestKey, bestVal: all[0].value, pickKey, pickVal: map.get(pickKey) ?? null };
-        const nm = [entry, ...m].slice(0, 40);
-        storeSet('leavelab-leaves-mistakes', nm);
-        return nm;
-      });
-    }
-  };
-
-  const pickRank = ranked ? ranked.findIndex((r) => r.leave === pickKey) : -1;
-  const pickVal = pickRank >= 0 ? ranked[pickRank].value : null;
-  const top3 = ranked ? ranked.slice(0, 3) : [];
-  const pickInTop3 = pickRank >= 0 && pickRank < 3;
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
-        <button onClick={() => deal()} style={btnPrimary}>New rack</button>
-        {mistakes.length > 0 && (
-          <button onClick={() => setShowMistakes((v) => !v)} style={btnGhost}>
-            Mistakes: {mistakes.length} {showMistakes ? '\u25B2' : '\u25BC'}
-          </button>
-        )}
-      </div>
-
-      {showMistakes && mistakes.length > 0 && (
-        <Card style={{ marginBottom: 14 }}>
-          <Label>Racks you missed. Tap Retry to attempt again.</Label>
-          <div style={{ marginTop: 8 }}>
-            {mistakes.map((m, idx) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                  <TileRow letters={normKey(m.rack)} size={22} gap={2} />
-                  <div style={{ fontSize: 12, color: '#6b5d54', marginTop: 4, fontFamily: mono }}>
-                    best: {m.bestKey} ({fmt(m.bestVal)}) · you: {m.pickKey} ({m.pickVal !== null ? fmt(m.pickVal) : 'n/a'})
-                  </div>
-                </div>
-                <button onClick={() => { setShowMistakes(false); deal(m.rack); }} style={btnSmall}>Retry</button>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      <Card>
-        <Label>Tap the tiles you want to keep</Label>
-        <div style={{ marginTop: 10, display: 'flex', gap: 4 }}>
-          {rack.map((l, i) => (
-            <Tile key={i} letter={l} size={40} selected={sel.has(i)} onClick={() => toggle(i)} />
-          ))}
-        </div>
-        {rackWarning(rack) && <WarnNote text={rackWarning(rack)} />}
-        <div style={{ marginTop: 12, fontSize: 13, color: '#6b5d54' }}>
-          Keeping {sel.size} {sel.size === 1 ? 'tile' : 'tiles'}
-          {sel.size > 0 && <>: <b style={{ fontFamily: mono }}>{pickKey}</b></>}
-          {!submitted && (sel.size < 1 || sel.size > 6) && <span style={{ color: '#8b2e2e' }}> (keep 1 to 6)</span>}
-        </div>
-        {!submitted && (
-          <button onClick={submit} disabled={sel.size < 1 || sel.size > 6} style={{ ...btnPrimary, marginTop: 14, opacity: sel.size >= 1 && sel.size <= 6 ? 1 : 0.5 }}>
-            Submit
-          </button>
-        )}
-      </Card>
-
-      {submitted && ranked && (
-        <>
-          <Card style={{ marginTop: 14 }}>
-            <Label>Top 3 leaves</Label>
-            <div style={{ marginTop: 8 }}>
-              {top3.map((r, i) => (
-                <RankRow key={r.leave} rank={i + 1} leave={r.leave} value={r.value} highlight={r.leave === pickKey} />
-              ))}
-            </div>
-          </Card>
-          <Card style={{ marginTop: 12, background: pickInTop3 ? '#f1f7ee' : '#fff', borderColor: pickInTop3 ? '#8ba889' : '#e4dcc9' }}>
-            <Label>Your pick</Label>
-            <div style={{ marginTop: 8 }}>
-              {pickVal !== null ? (
-                <RankRow rank={pickRank + 1} leave={pickKey} value={pickVal} highlight />
-              ) : (
-                <div style={{ color: '#8b2e2e', fontSize: 14 }}>That leave is not in the data.</div>
-              )}
-            </div>
-            {pickVal !== null && pickRank > 0 && (
-              <div style={{ marginTop: 8, fontSize: 13, color: '#6b5d54' }}>
-                {(ranked[0].value - pickVal).toFixed(1)} behind the best leave ({ranked[0].leave}).
-              </div>
-            )}
-          </Card>
-        </>
-      )}
-    </div>
-  );
+    const [rack, setRack] = useState(null);
+    const [sel, setSel] = useState(new Set());
+    const [submitted, setSubmitted] = useState(false);
+    const [mistakes, setMistakes] = useState([]);
+    const [showMistakes, setShowMistakes] = useState(false);
+    const deal = (specificRack) => {
+        setRack(specificRack ? [...specificRack] : randomRack());
+        setSel(new Set());
+        setSubmitted(false);
+    };
+    useEffect(() => {
+        if (!rack)
+            deal();
+    }, []);
+    useEffect(() => {
+        (async () => setMistakes(await storeGet('leavelab-leaves-mistakes', [])))();
+    }, []);
+    // All hooks must run before any early return (Rules of Hooks).
+    const ranked = useMemo(() => {
+        if (!submitted || !rack)
+            return null;
+        return enumerateLeaves(rack, map, 1, 6).sort((a, b) => b.value - a.value);
+    }, [submitted, rack, map]);
+    const pickKey = useMemo(() => {
+        if (!rack)
+            return '';
+        const tiles = [...sel].map((i) => rack[i]);
+        return normKey(tiles);
+    }, [sel, rack]);
+    if (!rack)
+        return React.createElement(Empty, null, "Dealing...");
+    const mono = "'JetBrains Mono', ui-monospace, monospace";
+    const toggle = (i) => {
+        if (submitted)
+            return;
+        const s = new Set(sel);
+        if (s.has(i))
+            s.delete(i);
+        else
+            s.add(i);
+        setSel(s);
+    };
+    const submit = () => {
+        if (sel.size < 1 || sel.size > 6)
+            return;
+        setSubmitted(true);
+        const all = enumerateLeaves(rack, map, 1, 6).sort((a, b) => b.value - a.value);
+        const bestKey = all.length ? all[0].leave : null;
+        if (bestKey && pickKey !== bestKey) {
+            setMistakes((m) => {
+                const entry = { rack: [...rack], bestKey, bestVal: all[0].value, pickKey, pickVal: map.get(pickKey) ?? null };
+                const nm = [entry, ...m].slice(0, 40);
+                storeSet('leavelab-leaves-mistakes', nm);
+                return nm;
+            });
+        }
+    };
+    const pickRank = ranked ? ranked.findIndex((r) => r.leave === pickKey) : -1;
+    const pickVal = pickRank >= 0 ? ranked[pickRank].value : null;
+    const top3 = ranked ? ranked.slice(0, 3) : [];
+    const pickInTop3 = pickRank >= 0 && pickRank < 3;
+    return (React.createElement("div", null,
+        React.createElement("div", { style: { display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' } },
+            React.createElement("button", { onClick: () => deal(), style: btnPrimary }, "New rack"),
+            mistakes.length > 0 && (React.createElement("button", { onClick: () => setShowMistakes((v) => !v), style: btnGhost },
+                "Mistakes: ",
+                mistakes.length,
+                " ",
+                showMistakes ? '\u25B2' : '\u25BC'))),
+        showMistakes && mistakes.length > 0 && (React.createElement(Card, { style: { marginBottom: 14 } },
+            React.createElement(Label, null, "Racks you missed. Tap Retry to attempt again."),
+            React.createElement("div", { style: { marginTop: 8 } }, mistakes.map((m, idx) => (React.createElement("div", { key: idx, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' } },
+                React.createElement("div", { style: { flex: '1 1 auto', minWidth: 0 } },
+                    React.createElement(TileRow, { letters: normKey(m.rack), size: 22, gap: 2 }),
+                    React.createElement("div", { style: { fontSize: 12, color: '#6b5d54', marginTop: 4, fontFamily: mono } },
+                        "best: ",
+                        m.bestKey,
+                        " (",
+                        fmt(m.bestVal),
+                        ") \u00B7 you: ",
+                        m.pickKey,
+                        " (",
+                        m.pickVal !== null ? fmt(m.pickVal) : 'n/a',
+                        ")")),
+                React.createElement("button", { onClick: () => { setShowMistakes(false); deal(m.rack); }, style: btnSmall }, "Retry"))))))),
+        React.createElement(Card, null,
+            React.createElement(Label, null, "Tap the tiles you want to keep"),
+            React.createElement("div", { style: { marginTop: 10, display: 'flex', gap: 4 } }, rack.map((l, i) => (React.createElement(Tile, { key: i, letter: l, size: 40, selected: sel.has(i), onClick: () => toggle(i) })))),
+            rackWarning(rack) && React.createElement(WarnNote, { text: rackWarning(rack) }),
+            React.createElement("div", { style: { marginTop: 12, fontSize: 13, color: '#6b5d54' } },
+                "Keeping ",
+                sel.size,
+                " ",
+                sel.size === 1 ? 'tile' : 'tiles',
+                sel.size > 0 && React.createElement(React.Fragment, null,
+                    ": ",
+                    React.createElement("b", { style: { fontFamily: mono } }, pickKey)),
+                !submitted && (sel.size < 1 || sel.size > 6) && React.createElement("span", { style: { color: '#8b2e2e' } }, " (keep 1 to 6)")),
+            !submitted && (React.createElement("button", { onClick: submit, disabled: sel.size < 1 || sel.size > 6, style: { ...btnPrimary, marginTop: 14, opacity: sel.size >= 1 && sel.size <= 6 ? 1 : 0.5 } }, "Submit"))),
+        submitted && ranked && (React.createElement(React.Fragment, null,
+            React.createElement(Card, { style: { marginTop: 14 } },
+                React.createElement(Label, null, "Top 3 leaves"),
+                React.createElement("div", { style: { marginTop: 8 } }, top3.map((r, i) => (React.createElement(RankRow, { key: r.leave, rank: i + 1, leave: r.leave, value: r.value, highlight: r.leave === pickKey }))))),
+            React.createElement(Card, { style: { marginTop: 12, background: pickInTop3 ? '#f1f7ee' : '#fff', borderColor: pickInTop3 ? '#8ba889' : '#e4dcc9' } },
+                React.createElement(Label, null, "Your pick"),
+                React.createElement("div", { style: { marginTop: 8 } }, pickVal !== null ? (React.createElement(RankRow, { rank: pickRank + 1, leave: pickKey, value: pickVal, highlight: true })) : (React.createElement("div", { style: { color: '#8b2e2e', fontSize: 14 } }, "That leave is not in the data."))),
+                pickVal !== null && pickRank > 0 && (React.createElement("div", { style: { marginTop: 8, fontSize: 13, color: '#6b5d54' } },
+                    (ranked[0].value - pickVal).toFixed(1),
+                    " behind the best leave (",
+                    ranked[0].leave,
+                    ").")))))));
 }
-
 // ============================================================================
 // ANALYZE TAB — enter a rack -> ranked leaves; or "X*" synergy; CSV download
 // ============================================================================
 function AnalyzeTab({ map }) {
-  const [input, setInput] = useState('AEINST');
-  const [limit, setLimit] = useState(10);
-  const [synNoBlanks, setSynNoBlanks] = useState(false);
-
-  const parsed = useMemo(() => {
-    const raw = input.toUpperCase().replace(/[^A-Z?*]/g, '');
-    // synergy mode: a single letter/blank followed by one or more '*'.
-    // Each '*' is one wildcard tile, so X* = 2-tile leaves with X, X** = 3-tile, etc.
-    const synMatch = raw.match(/^([A-Z?])(\*+)$/);
-    if (synMatch) {
-      const x = synMatch[1];
-      const k = Math.min(synMatch[2].length, 5); // leaves max 6 tiles
-      let rows = wildcardLeaves(x, k, map);
-      if (synNoBlanks) rows = rows.filter((r) => r.leave.indexOf('?') < 0);
-      return { mode: 'synergy', letter: x, k, rows };
-    }
-    // rack mode
-    const tiles = raw.replace(/\*/g, '').split('').slice(0, 8);
-    if (tiles.length === 0) return { mode: 'rack', tiles: [], rows: [] };
-    const rows = enumerateLeaves(tiles, map, 1, Math.min(6, tiles.length)).sort((a, b) => b.value - a.value);
-    return { mode: 'rack', tiles, rows };
-  }, [input, map, synNoBlanks]);
-
-  useEffect(() => setLimit(10), [input]);
-
-  const rows = parsed.rows;
-  const shown = rows.slice(0, limit);
-  const rackWarn = parsed.mode === 'rack' && parsed.tiles.length > 0 ? rackWarning(parsed.tiles) : null;
-
-  return (
-    <div>
-      <Card>
-        <Label>Enter a rack, or a synergy query like J*</Label>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="AEINST  or  J*"
-          style={inputStyle}
-        />
-        <div style={{ fontSize: 12, color: '#a89a86', marginTop: 8, lineHeight: 1.5 }}>
-          A rack shows every keepable leave ranked. <b>J*</b> shows J plus one tile, <b>J**</b> plus two, and so on. Use ? for a blank.
-        </div>
-      </Card>
-
-      {parsed.mode === 'synergy' && (
-        <Card style={{ marginTop: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
-            <Label>{parsed.letter} plus {parsed.k} tile{parsed.k > 1 ? 's' : ''} ({rows.length})</Label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#6b5d54', cursor: 'pointer' }}>
-                <input type="checkbox" checked={synNoBlanks} onChange={(e) => setSynNoBlanks(e.target.checked)} />
-                Exclude blanks
-              </label>
-              <button onClick={() => downloadCSV(`${parsed.letter}_plus${parsed.k}${synNoBlanks ? '_noblank' : ''}.csv`, rows)} style={btnSmall}>Download CSV</button>
-            </div>
-          </div>
-          {rows.map((r, i) => (
-            <RankRow key={r.leave} rank={i + 1} leave={r.leave} value={r.value} />
-          ))}
-        </Card>
-      )}
-
-      {parsed.mode === 'rack' && parsed.tiles.length > 0 && (
-        <Card style={{ marginTop: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <Label>{rows.length} leaves ranked</Label>
-            <button onClick={() => downloadCSV(`${normKey(parsed.tiles)}_leaves.csv`, rows)} style={btnSmall}>Download CSV</button>
-          </div>
-          {rackWarn && <WarnNote text={rackWarn} />}
-          {shown.map((r, i) => (
-            <RankRow key={r.leave} rank={i + 1} leave={r.leave} value={r.value} />
-          ))}
-          {rows.length > limit && (
-            <button onClick={() => setLimit((l) => l + 40)} style={{ ...btnGhost, marginTop: 10 }}>
-              Show more ({rows.length - limit} left)
-            </button>
-          )}
-        </Card>
-      )}
-    </div>
-  );
+    const [input, setInput] = useState('AEINST');
+    const [limit, setLimit] = useState(10);
+    const [synNoBlanks, setSynNoBlanks] = useState(false);
+    const parsed = useMemo(() => {
+        const raw = input.toUpperCase().replace(/[^A-Z?*]/g, '');
+        // synergy mode: a single letter/blank followed by one or more '*'.
+        // Each '*' is one wildcard tile, so X* = 2-tile leaves with X, X** = 3-tile, etc.
+        const synMatch = raw.match(/^([A-Z?])(\*+)$/);
+        if (synMatch) {
+            const x = synMatch[1];
+            const k = Math.min(synMatch[2].length, 5); // leaves max 6 tiles
+            let rows = wildcardLeaves(x, k, map);
+            if (synNoBlanks)
+                rows = rows.filter((r) => r.leave.indexOf('?') < 0);
+            return { mode: 'synergy', letter: x, k, rows };
+        }
+        // rack mode
+        const tiles = raw.replace(/\*/g, '').split('').slice(0, 8);
+        if (tiles.length === 0)
+            return { mode: 'rack', tiles: [], rows: [] };
+        const rows = enumerateLeaves(tiles, map, 1, Math.min(6, tiles.length)).sort((a, b) => b.value - a.value);
+        return { mode: 'rack', tiles, rows };
+    }, [input, map, synNoBlanks]);
+    useEffect(() => setLimit(10), [input]);
+    const rows = parsed.rows;
+    const shown = rows.slice(0, limit);
+    const rackWarn = parsed.mode === 'rack' && parsed.tiles.length > 0 ? rackWarning(parsed.tiles) : null;
+    return (React.createElement("div", null,
+        React.createElement(Card, null,
+            React.createElement(Label, null, "Enter a rack, or a synergy query like J*"),
+            React.createElement("input", { value: input, onChange: (e) => setInput(e.target.value), placeholder: "AEINST  or  J*", style: inputStyle }),
+            React.createElement("div", { style: { fontSize: 12, color: '#a89a86', marginTop: 8, lineHeight: 1.5 } },
+                "A rack shows every keepable leave ranked. ",
+                React.createElement("b", null, "J*"),
+                " shows J plus one tile, ",
+                React.createElement("b", null, "J**"),
+                " plus two, and so on. Use ? for a blank.")),
+        parsed.mode === 'synergy' && (React.createElement(Card, { style: { marginTop: 14 } },
+            React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 } },
+                React.createElement(Label, null,
+                    parsed.letter,
+                    " plus ",
+                    parsed.k,
+                    " tile",
+                    parsed.k > 1 ? 's' : '',
+                    " (",
+                    rows.length,
+                    ")"),
+                React.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+                    React.createElement("label", { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#6b5d54', cursor: 'pointer' } },
+                        React.createElement("input", { type: "checkbox", checked: synNoBlanks, onChange: (e) => setSynNoBlanks(e.target.checked) }),
+                        "Exclude blanks"),
+                    React.createElement("button", { onClick: () => downloadCSV(`${parsed.letter}_plus${parsed.k}${synNoBlanks ? '_noblank' : ''}.csv`, rows), style: btnSmall }, "Download CSV"))),
+            rows.map((r, i) => (React.createElement(RankRow, { key: r.leave, rank: i + 1, leave: r.leave, value: r.value }))))),
+        parsed.mode === 'rack' && parsed.tiles.length > 0 && (React.createElement(Card, { style: { marginTop: 14 } },
+            React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 } },
+                React.createElement(Label, null,
+                    rows.length,
+                    " leaves ranked"),
+                React.createElement("button", { onClick: () => downloadCSV(`${normKey(parsed.tiles)}_leaves.csv`, rows), style: btnSmall }, "Download CSV")),
+            rackWarn && React.createElement(WarnNote, { text: rackWarn }),
+            shown.map((r, i) => (React.createElement(RankRow, { key: r.leave, rank: i + 1, leave: r.leave, value: r.value }))),
+            rows.length > limit && (React.createElement("button", { onClick: () => setLimit((l) => l + 40), style: { ...btnGhost, marginTop: 10 } },
+                "Show more (",
+                rows.length - limit,
+                " left)"))))));
 }
-
 // ============================================================================
 // CHEAT SHEETS TAB — filters -> single ranked list
 // ============================================================================
 function SheetsTab({ map, sortedRef }) {
-  const [ready, setReady] = useState(!!sortedRef.current);
-  const [tiles, setTiles] = useState('any');
-  const [order, setOrder] = useState('best');
-  const [blanks, setBlanks] = useState('include');
-  const [dups, setDups] = useState('include');
-  const [vowels, setVowels] = useState('any');
-  const [cons, setCons] = useState('any');
-  const [limit, setLimit] = useState(50);
-
-  useEffect(() => {
-    if (sortedRef.current) { setReady(true); return; }
-    // Build sorted-desc array once (lazy). Defer so loading UI paints.
-    const id = setTimeout(() => {
-      const arr = [];
-      for (const [leave, value] of map) arr.push({ leave, value });
-      arr.sort((a, b) => b.value - a.value);
-      sortedRef.current = arr;
-      setReady(true);
-    }, 20);
-    return () => clearTimeout(id);
-  }, [map, sortedRef]);
-
-  useEffect(() => setLimit(50), [tiles, order, blanks, dups, vowels, cons]);
-
-  const filtered = useMemo(() => {
-    if (!ready || !sortedRef.current) return [];
-    const base = sortedRef.current;
-    const nTiles = tiles === 'any' ? null : parseInt(tiles, 10);
-    const nV = vowels === 'any' ? null : parseInt(vowels, 10);
-    const nC = cons === 'any' ? null : parseInt(cons, 10);
-    const out = [];
-    const scan = (r) => {
-      const k = r.leave;
-      if (nTiles !== null && k.length !== nTiles) return;
-      const hasBlank = k.indexOf('?') >= 0;
-      if (blanks === 'exclude' && hasBlank) return;
-      if (dups === 'exclude' && hasDuplicate(k)) return;
-      if (nV !== null && countVowels(k) !== nV) return;
-      if (nC !== null && countConsonants(k) !== nC) return;
-      out.push(r);
-    };
-    if (order === 'best') {
-      for (let i = 0; i < base.length; i++) scan(base[i]);
-    } else {
-      for (let i = base.length - 1; i >= 0; i--) scan(base[i]);
-    }
-    return out;
-  }, [ready, sortedRef, tiles, order, blanks, dups, vowels, cons]);
-
-  if (!ready) return <Empty>Indexing all leaves for filtering...</Empty>;
-
-  const shown = filtered.slice(0, limit);
-  const sel = { padding: '7px 8px', border: '1px solid #d9d0c0', borderRadius: 5, background: '#fdfbf5', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 13, color: '#1f1a14' };
-
-  return (
-    <div>
-      <Card>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' }}>
-          <Field label="Tiles">
-            <select value={tiles} onChange={(e) => setTiles(e.target.value)} style={sel}>
-              <option value="any">Any</option>
-              {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </Field>
-          <Field label="Order">
-            <select value={order} onChange={(e) => setOrder(e.target.value)} style={sel}>
-              <option value="best">Best</option>
-              <option value="worst">Worst</option>
-            </select>
-          </Field>
-          <Field label="Blanks">
-            <select value={blanks} onChange={(e) => setBlanks(e.target.value)} style={sel}>
-              <option value="include">Include</option>
-              <option value="exclude">Exclude</option>
-            </select>
-          </Field>
-          <Field label="Dupes">
-            <select value={dups} onChange={(e) => setDups(e.target.value)} style={sel}>
-              <option value="include">Include</option>
-              <option value="exclude">Exclude</option>
-            </select>
-          </Field>
-          <Field label="Vowels">
-            <select value={vowels} onChange={(e) => setVowels(e.target.value)} style={sel}>
-              <option value="any">Any</option>
-              {[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </Field>
-          <Field label="Cons">
-            <select value={cons} onChange={(e) => setCons(e.target.value)} style={sel}>
-              <option value="any">Any</option>
-              {[0, 1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </Field>
-        </div>
-      </Card>
-
-      <Card style={{ marginTop: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <Label>{filtered.length.toLocaleString()} leaves</Label>
-          {filtered.length > 0 && (
-            <button onClick={() => downloadCSV('cheatsheet.csv', filtered.slice(0, 5000))} style={btnSmall}>Download CSV</button>
-          )}
-        </div>
-        {shown.length === 0 && <div style={{ color: '#8a7e70', fontStyle: 'italic', fontSize: 14 }}>No leaves match these filters.</div>}
-        {shown.map((r, i) => (
-          <RankRow key={r.leave} rank={i + 1} leave={r.leave} value={r.value} />
-        ))}
-        {filtered.length > limit && (
-          <button onClick={() => setLimit((l) => l + 50)} style={{ ...btnGhost, marginTop: 10 }}>
-            Show more ({(filtered.length - limit).toLocaleString()} left)
-          </button>
-        )}
-        {filtered.length > 5000 && (
-          <div style={{ fontSize: 11, color: '#a89a86', marginTop: 8 }}>CSV export capped at 5,000 rows.</div>
-        )}
-      </Card>
-    </div>
-  );
+    const [ready, setReady] = useState(!!sortedRef.current);
+    const [tiles, setTiles] = useState('any');
+    const [order, setOrder] = useState('best');
+    const [blanks, setBlanks] = useState('include');
+    const [dups, setDups] = useState('include');
+    const [vowels, setVowels] = useState('any');
+    const [cons, setCons] = useState('any');
+    const [limit, setLimit] = useState(50);
+    useEffect(() => {
+        if (sortedRef.current) {
+            setReady(true);
+            return;
+        }
+        // Build sorted-desc array once (lazy). Defer so loading UI paints.
+        const id = setTimeout(() => {
+            const arr = [];
+            for (const [leave, value] of map)
+                arr.push({ leave, value });
+            arr.sort((a, b) => b.value - a.value);
+            sortedRef.current = arr;
+            setReady(true);
+        }, 20);
+        return () => clearTimeout(id);
+    }, [map, sortedRef]);
+    useEffect(() => setLimit(50), [tiles, order, blanks, dups, vowels, cons]);
+    const filtered = useMemo(() => {
+        if (!ready || !sortedRef.current)
+            return [];
+        const base = sortedRef.current;
+        const nTiles = tiles === 'any' ? null : parseInt(tiles, 10);
+        const nV = vowels === 'any' ? null : parseInt(vowels, 10);
+        const nC = cons === 'any' ? null : parseInt(cons, 10);
+        const out = [];
+        const scan = (r) => {
+            const k = r.leave;
+            if (nTiles !== null && k.length !== nTiles)
+                return;
+            const hasBlank = k.indexOf('?') >= 0;
+            if (blanks === 'exclude' && hasBlank)
+                return;
+            if (dups === 'exclude' && hasDuplicate(k))
+                return;
+            if (nV !== null && countVowels(k) !== nV)
+                return;
+            if (nC !== null && countConsonants(k) !== nC)
+                return;
+            out.push(r);
+        };
+        if (order === 'best') {
+            for (let i = 0; i < base.length; i++)
+                scan(base[i]);
+        }
+        else {
+            for (let i = base.length - 1; i >= 0; i--)
+                scan(base[i]);
+        }
+        return out;
+    }, [ready, sortedRef, tiles, order, blanks, dups, vowels, cons]);
+    if (!ready)
+        return React.createElement(Empty, null, "Indexing all leaves for filtering...");
+    const shown = filtered.slice(0, limit);
+    const sel = { padding: '7px 8px', border: '1px solid #d9d0c0', borderRadius: 5, background: '#fdfbf5', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 13, color: '#1f1a14' };
+    return (React.createElement("div", null,
+        React.createElement(Card, null,
+            React.createElement("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' } },
+                React.createElement(Field, { label: "Tiles" },
+                    React.createElement("select", { value: tiles, onChange: (e) => setTiles(e.target.value), style: sel },
+                        React.createElement("option", { value: "any" }, "Any"),
+                        [1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))),
+                React.createElement(Field, { label: "Order" },
+                    React.createElement("select", { value: order, onChange: (e) => setOrder(e.target.value), style: sel },
+                        React.createElement("option", { value: "best" }, "Best"),
+                        React.createElement("option", { value: "worst" }, "Worst"))),
+                React.createElement(Field, { label: "Blanks" },
+                    React.createElement("select", { value: blanks, onChange: (e) => setBlanks(e.target.value), style: sel },
+                        React.createElement("option", { value: "include" }, "Include"),
+                        React.createElement("option", { value: "exclude" }, "Exclude"))),
+                React.createElement(Field, { label: "Dupes" },
+                    React.createElement("select", { value: dups, onChange: (e) => setDups(e.target.value), style: sel },
+                        React.createElement("option", { value: "include" }, "Include"),
+                        React.createElement("option", { value: "exclude" }, "Exclude"))),
+                React.createElement(Field, { label: "Vowels" },
+                    React.createElement("select", { value: vowels, onChange: (e) => setVowels(e.target.value), style: sel },
+                        React.createElement("option", { value: "any" }, "Any"),
+                        [0, 1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))),
+                React.createElement(Field, { label: "Cons" },
+                    React.createElement("select", { value: cons, onChange: (e) => setCons(e.target.value), style: sel },
+                        React.createElement("option", { value: "any" }, "Any"),
+                        [0, 1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))))),
+        React.createElement(Card, { style: { marginTop: 14 } },
+            React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 } },
+                React.createElement(Label, null,
+                    filtered.length.toLocaleString(),
+                    " leaves"),
+                filtered.length > 0 && (React.createElement("button", { onClick: () => downloadCSV('cheatsheet.csv', filtered.slice(0, 5000)), style: btnSmall }, "Download CSV"))),
+            shown.length === 0 && React.createElement("div", { style: { color: '#8a7e70', fontStyle: 'italic', fontSize: 14 } }, "No leaves match these filters."),
+            shown.map((r, i) => (React.createElement(RankRow, { key: r.leave, rank: i + 1, leave: r.leave, value: r.value }))),
+            filtered.length > limit && (React.createElement("button", { onClick: () => setLimit((l) => l + 50), style: { ...btnGhost, marginTop: 10 } },
+                "Show more (",
+                (filtered.length - limit).toLocaleString(),
+                " left)")),
+            filtered.length > 5000 && (React.createElement("div", { style: { fontSize: 11, color: '#a89a86', marginTop: 8 } }, "CSV export capped at 5,000 rows.")))));
 }
-
 // ============================================================================
 // SHARED UI
 // ============================================================================
 function Card({ children, style }) {
-  return <div style={{ background: '#fff', border: '1px solid #e4dcc9', borderRadius: 6, padding: 18, ...style }}>{children}</div>;
+    return React.createElement("div", { style: { background: '#fff', border: '1px solid #e4dcc9', borderRadius: 6, padding: 18, ...style } }, children);
 }
 function Label({ children }) {
-  return <div style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#6b5d54', fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>{children}</div>;
+    return React.createElement("div", { style: { fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#6b5d54', fontFamily: "'JetBrains Mono', ui-monospace, monospace" } }, children);
 }
 function Empty({ children }) {
-  return <div style={{ background: '#fff', border: '1px solid #e4dcc9', borderRadius: 6, padding: 40, textAlign: 'center', color: '#6b5d54' }}>{children}</div>;
+    return React.createElement("div", { style: { background: '#fff', border: '1px solid #e4dcc9', borderRadius: 6, padding: 40, textAlign: 'center', color: '#6b5d54' } }, children);
 }
 function WarnNote({ text }) {
-  return (
-    <div style={{ marginTop: 10, padding: '8px 10px', background: '#fdf4e3', border: '1px solid #e0c48a', borderRadius: 5, fontSize: 12, color: '#7a5a2a', lineHeight: 1.5 }}>
-      * {text}
-    </div>
-  );
+    return (React.createElement("div", { style: { marginTop: 10, padding: '8px 10px', background: '#fdf4e3', border: '1px solid #e0c48a', borderRadius: 5, fontSize: 12, color: '#7a5a2a', lineHeight: 1.5 } },
+        "* ",
+        text));
 }
 function Field({ label, children }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <span style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8a7e70', fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>{label}</span>
-      {children}
-    </div>
-  );
+    return (React.createElement("div", { style: { display: 'flex', flexDirection: 'column', gap: 4 } },
+        React.createElement("span", { style: { fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8a7e70', fontFamily: "'JetBrains Mono', ui-monospace, monospace" } }, label),
+        children));
 }
 function Row({ k, v, c }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-      <span style={{ color: '#6b5d54' }}>{k}</span>
-      <span style={{ color: c || '#1f1a14' }}>{v}</span>
-    </div>
-  );
+    return (React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between' } },
+        React.createElement("span", { style: { color: '#6b5d54' } }, k),
+        React.createElement("span", { style: { color: c || '#1f1a14' } }, v)));
 }
 function RankRow({ rank, leave, value, highlight }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', borderBottom: '1px solid #f0eadc', background: highlight ? '#f1f7ee' : 'transparent' }}>
-      <span style={{ width: 30, textAlign: 'right', fontSize: 12, color: '#a89a86', fontFamily: "'JetBrains Mono', ui-monospace, monospace", flexShrink: 0 }}>{rank}</span>
-      <div style={{ flex: 1, minWidth: 0 }}><TileRow letters={leave} size={24} gap={2} /></div>
-      <span style={{ width: 72, textAlign: 'right', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 14, fontWeight: 500, color: value >= 0 ? '#3d6b3d' : '#8b2e2e', flexShrink: 0 }}>{fmt(value)}</span>
-    </div>
-  );
+    return (React.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', borderBottom: '1px solid #f0eadc', background: highlight ? '#f1f7ee' : 'transparent' } },
+        React.createElement("span", { style: { width: 30, textAlign: 'right', fontSize: 12, color: '#a89a86', fontFamily: "'JetBrains Mono', ui-monospace, monospace", flexShrink: 0 } }, rank),
+        React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+            React.createElement(TileRow, { letters: leave, size: 24, gap: 2 })),
+        React.createElement("span", { style: { width: 72, textAlign: 'right', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 14, fontWeight: 500, color: value >= 0 ? '#3d6b3d' : '#8b2e2e', flexShrink: 0 } }, fmt(value))));
 }
 function StatBar({ stats, label = 'best play' }) {
-  const acc = stats.n ? Math.round((stats.ok / stats.n) * 100) : 0;
-  return (
-    <div style={{ display: 'flex', gap: 16, marginBottom: 14, fontSize: 13, color: '#6b5d54', fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-      <span>Picked {label}: <b style={{ color: '#1f1a14' }}>{stats.ok}/{stats.n}</b></span>
-      <span>{acc}%</span>
-    </div>
-  );
+    const acc = stats.n ? Math.round((stats.ok / stats.n) * 100) : 0;
+    return (React.createElement("div", { style: { display: 'flex', gap: 16, marginBottom: 14, fontSize: 13, color: '#6b5d54', fontFamily: "'JetBrains Mono', ui-monospace, monospace" } },
+        React.createElement("span", null,
+            "Picked ",
+            label,
+            ": ",
+            React.createElement("b", { style: { color: '#1f1a14' } },
+                stats.ok,
+                "/",
+                stats.n)),
+        React.createElement("span", null,
+            acc,
+            "%")));
 }
-
 const inputStyle = {
-  width: '100%',
-  padding: '10px 12px',
-  border: '1px solid #d9d0c0',
-  borderRadius: 5,
-  fontSize: 16,
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
-  background: '#fdfbf5',
-  color: '#1f1a14',
-  letterSpacing: '0.08em',
-  boxSizing: 'border-box',
-  marginTop: 8,
+    width: '100%',
+    padding: '10px 12px',
+    border: '1px solid #d9d0c0',
+    borderRadius: 5,
+    fontSize: 16,
+    fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+    background: '#fdfbf5',
+    color: '#1f1a14',
+    letterSpacing: '0.08em',
+    boxSizing: 'border-box',
+    marginTop: 8,
 };
 const btnPrimary = { padding: '10px 18px', background: '#8b2e2e', color: '#faf6ec', border: 'none', borderRadius: 5, fontSize: 14, fontFamily: "'Newsreader', Georgia, serif", cursor: 'pointer', fontWeight: 500 };
 const btnGhost = { padding: '8px 16px', background: 'transparent', color: '#6b5d54', border: '1px solid #d9d0c0', borderRadius: 5, fontSize: 13, fontFamily: "'Newsreader', Georgia, serif", cursor: 'pointer' };
 const btnSmall = { padding: '6px 12px', background: '#1f1a14', color: '#faf6ec', border: 'none', borderRadius: 5, fontSize: 12, fontFamily: "'Newsreader', Georgia, serif", cursor: 'pointer' };
-
-
-ReactDOM.createRoot(document.getElementById('root')).render(<LeaveLab />);
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(LeaveLab, null));
 
 </script>
 </body>
