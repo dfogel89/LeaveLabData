@@ -9,7 +9,6 @@
 <body>
 <div id="root"></div>
 <script>
-// If anything below fails, show the error on-page instead of a blank screen
 window.addEventListener('error', function(e){
   var r = document.getElementById('root');
   if (r && !r.hasChildNodes()) {
@@ -25,7 +24,7 @@ window.addEventListener('error', function(e){
 "use strict";
 const { useState, useEffect, useMemo, useRef } = React;
 // Leave Lab — NWL23 real leave values (Quackle/Macondo/MAGPIE), embedded.
-const BUILD = 'v9';
+const BUILD = 'v10';
 // Data is embedded below as gzip+base64 of lines "KEY INTVALUE" where
 // INTVALUE = round(realValue * 1000). Decompressed in-browser at load.
 const DATA_B64 = ""; // moved to external file leaves_nwl23.gz - set DATA_URL above
@@ -137,7 +136,7 @@ function rackWarning(rackTiles) {
         const supply = TILE_DIST[letter] || 0;
         const isVowel = VOWELS.has(letter);
         const threshold = isVowel ? supply / 3 : supply / 2;
-        if (held > threshold)
+        if (held >= 2 && held > threshold)
             flagged.push(`${held} ${letter}${held > 1 ? "'s" : ''}`);
     }
     if (flagged.length === 0)
@@ -162,6 +161,18 @@ function normKey(tiles) {
     for (let i = 0; i < blanks; i++)
         out += '?';
     return out + letters.join('');
+}
+// Display order for racks: blanks first, then alphabetical.
+function sortTiles(tiles) {
+    return [...tiles].sort((a, b) => {
+        if (a === b)
+            return 0;
+        if (a === '?')
+            return -1;
+        if (b === '?')
+            return 1;
+        return a < b ? -1 : 1;
+    });
 }
 function randomRack() {
     const bag = [];
@@ -424,6 +435,10 @@ function LeaveLab() {
 const EQ_MIN_LEAVE_GAP = 4;
 const EQ_MAX_LEAVE_GAP = 18;
 function generateEquity(map) {
+    // Decide the winner once and hold it fixed across attempts. Re-flipping the
+    // coin on every rejected attempt biased problems toward the higher-scoring
+    // play winning, because only the aWins branch can reject.
+    const aWins = Math.random() < 0.5;
     for (let attempt = 0; attempt < 800; attempt++) {
         const rack = randomRack();
         const subs = enumerateLeaves(rack, map, 1, 6);
@@ -443,7 +458,6 @@ function generateEquity(map) {
         if (leaveGap < EQ_MIN_LEAVE_GAP || leaveGap > EQ_MAX_LEAVE_GAP)
             continue;
         const target = 1 + Math.random() * 6; // desired equity gap in [1,7]
-        const aWins = Math.random() < 0.5;
         // Better leave (A) always scores LESS; worse leave (B) scores MORE.
         let scoreGap;
         if (aWins) {
@@ -501,6 +515,7 @@ function EquityTab({ map }) {
     const [pick, setPick] = useState(null);
     const [mistakes, setMistakes] = useState([]);
     const [showMistakes, setShowMistakes] = useState(false);
+    const [buckets, setBuckets] = useState({ medium: true, large: true });
     useEffect(() => {
         (async () => setMistakes(await storeGet('leavelab-equity-mistakes', [])))();
     }, []);
@@ -518,6 +533,7 @@ function EquityTab({ map }) {
     const better = q.opts[0].value >= q.opts[1].value ? q.opts[0] : q.opts[1];
     const worse = better === q.opts[0] ? q.opts[1] : q.opts[0];
     const leaveGap = better.value - worse.value;
+    const margin = Math.abs(q.opts[0].equity - q.opts[1].equity);
     const revealed = pick !== null;
     const correct = revealed && pick === best;
     const warn = rackWarning(q.rack.split(''));
@@ -527,12 +543,13 @@ function EquityTab({ map }) {
         setPick(o);
         if (o !== best) {
             setMistakes((m) => {
-                const nm = [{ rack: q.rack, opts: q.opts }, ...m].slice(0, 40);
+                const nm = [{ rack: q.rack, opts: q.opts, margin }, ...m].slice(0, 40);
                 storeSet('leavelab-equity-mistakes', nm);
                 return nm;
             });
         }
     };
+    const visMistakes = mistakes.filter((m) => buckets[eqBucket(m)]);
     return (React.createElement("div", null,
         React.createElement("div", { style: { display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' } },
             React.createElement("button", { onClick: () => next(), style: btnPrimary }, "New question"),
@@ -543,19 +560,23 @@ function EquityTab({ map }) {
                 showMistakes ? '\u25B2' : '\u25BC'))),
         showMistakes && mistakes.length > 0 && (React.createElement(Card, { style: { marginBottom: 14 } },
             React.createElement(Label, null, "Questions you missed. Tap Retry to attempt again."),
-            React.createElement("div", { style: { marginTop: 8 } }, mistakes.map((m, idx) => (React.createElement("div", { key: idx, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' } },
-                React.createElement("div", { style: { flex: '1 1 auto', minWidth: 0 } },
-                    React.createElement(TileRow, { letters: m.rack, size: 22, gap: 2 }),
-                    React.createElement("div", { style: { fontSize: 12, color: '#6b5d54', marginTop: 4, fontFamily: "'JetBrains Mono', ui-monospace, monospace" } },
-                        m.opts[0].leave,
-                        " (",
-                        m.opts[0].score,
-                        ") vs ",
-                        m.opts[1].leave,
-                        " (",
-                        m.opts[1].score,
-                        ")")),
-                React.createElement("button", { onClick: () => { setShowMistakes(false); next(m); }, style: btnSmall }, "Retry"))))))),
+            React.createElement(BucketFilter, { buckets: buckets, setBuckets: setBuckets, defs: [['medium', 'Medium (1-3 pts)'], ['large', 'Large (over 3 pts)']] }),
+            React.createElement("div", { style: { marginTop: 8 } },
+                visMistakes.length === 0 && React.createElement("div", { style: { color: '#8a7e70', fontStyle: 'italic', fontSize: 14, padding: '8px 0' } }, "No mistakes in the selected categories."),
+                visMistakes.map((m, idx) => (React.createElement("div", { key: idx, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' } },
+                    React.createElement("div", { style: { flex: '1 1 auto', minWidth: 0 } },
+                        React.createElement(TileRow, { letters: m.rack, size: 22, gap: 2 }),
+                        React.createElement("div", { style: { fontSize: 12, color: '#6b5d54', marginTop: 4, fontFamily: "'JetBrains Mono', ui-monospace, monospace" } },
+                            m.opts[0].leave,
+                            " (",
+                            m.opts[0].score,
+                            ") vs ",
+                            m.opts[1].leave,
+                            " (",
+                            m.opts[1].score,
+                            ")")),
+                    React.createElement(BucketChip, { b: eqBucket(m) }),
+                    React.createElement("button", { onClick: () => { setShowMistakes(false); next(m); }, style: btnSmall }, "Retry"))))))),
         React.createElement(Card, null,
             React.createElement(Label, null, "Your rack"),
             React.createElement("div", { style: { marginTop: 8 } },
@@ -603,7 +624,7 @@ function EquityTab({ map }) {
         })),
         revealed && (React.createElement("div", { style: { marginTop: 16, padding: '14px 16px', background: correct ? '#f1f7ee' : '#faeeee', border: `1px solid ${correct ? '#8ba889' : '#c98585'}`, borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 } },
             React.createElement("div", null,
-                React.createElement("div", { style: { fontSize: 17, fontWeight: 500, color: correct ? '#3d6b3d' : '#8b2e2e' } }, correct ? 'Correct.' : 'Better play was the other one.'),
+                React.createElement("div", { style: { fontSize: 17, fontWeight: 500, color: correct ? '#3d6b3d' : '#8b2e2e' } }, correct ? `Correct, by ${margin.toFixed(1)} points.` : `Better play was the other one, by ${margin.toFixed(1)} points.`),
                 React.createElement("div", { style: { fontSize: 13, color: '#6b5d54', marginTop: 3 } },
                     "You need to score ",
                     leaveGap.toFixed(1),
@@ -623,8 +644,9 @@ function LeavesTab({ map }) {
     const [submitted, setSubmitted] = useState(false);
     const [mistakes, setMistakes] = useState([]);
     const [showMistakes, setShowMistakes] = useState(false);
+    const [buckets, setBuckets] = useState({ small: true, medium: true, large: true });
     const deal = (specificRack) => {
-        setRack(specificRack ? [...specificRack] : randomRack());
+        setRack(sortTiles(specificRack ? [...specificRack] : randomRack()));
         setSel(new Set());
         setSubmitted(false);
     };
@@ -679,6 +701,7 @@ function LeavesTab({ map }) {
     const pickVal = pickRank >= 0 ? ranked[pickRank].value : null;
     const top3 = ranked ? ranked.slice(0, 3) : [];
     const pickInTop3 = pickRank >= 0 && pickRank < 3;
+    const visMistakes = mistakes.filter((m) => buckets[lvBucket(m)]);
     return (React.createElement("div", null,
         React.createElement("div", { style: { display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' } },
             React.createElement("button", { onClick: () => deal(), style: btnPrimary }, "New rack"),
@@ -689,20 +712,14 @@ function LeavesTab({ map }) {
                 showMistakes ? '\u25B2' : '\u25BC'))),
         showMistakes && mistakes.length > 0 && (React.createElement(Card, { style: { marginBottom: 14 } },
             React.createElement(Label, null, "Racks you missed. Tap Retry to attempt again."),
-            React.createElement("div", { style: { marginTop: 8 } }, mistakes.map((m, idx) => (React.createElement("div", { key: idx, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' } },
-                React.createElement("div", { style: { flex: '1 1 auto', minWidth: 0 } },
-                    React.createElement(TileRow, { letters: normKey(m.rack), size: 22, gap: 2 }),
-                    React.createElement("div", { style: { fontSize: 12, color: '#6b5d54', marginTop: 4, fontFamily: mono } },
-                        "best: ",
-                        m.bestKey,
-                        " (",
-                        fmt(m.bestVal),
-                        ") \u00B7 you: ",
-                        m.pickKey,
-                        " (",
-                        m.pickVal !== null ? fmt(m.pickVal) : 'n/a',
-                        ")")),
-                React.createElement("button", { onClick: () => { setShowMistakes(false); deal(m.rack); }, style: btnSmall }, "Retry"))))))),
+            React.createElement(BucketFilter, { buckets: buckets, setBuckets: setBuckets, defs: [['small', 'Small (under 1 pt)'], ['medium', 'Medium (1-3 pts)'], ['large', 'Large (over 3 pts)']] }),
+            React.createElement("div", { style: { marginTop: 8 } },
+                visMistakes.length === 0 && React.createElement("div", { style: { color: '#8a7e70', fontStyle: 'italic', fontSize: 14, padding: '8px 0' } }, "No mistakes in the selected categories."),
+                visMistakes.map((m, idx) => (React.createElement("div", { key: idx, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: '1px solid #f0eadc', flexWrap: 'wrap' } },
+                    React.createElement("div", { style: { flex: '1 1 auto', minWidth: 0 } },
+                        React.createElement(TileRow, { letters: normKey(m.rack), size: 22, gap: 2 })),
+                    React.createElement(BucketChip, { b: lvBucket(m) }),
+                    React.createElement("button", { onClick: () => { setShowMistakes(false); deal(m.rack); }, style: btnSmall }, "Retry"))))))),
         React.createElement(Card, null,
             React.createElement(Label, null, "Tap the tiles you want to keep"),
             React.createElement("div", { style: { marginTop: 10, display: 'flex', gap: 4 } }, rack.map((l, i) => (React.createElement(Tile, { key: i, letter: l, size: 40, selected: sel.has(i), onClick: () => toggle(i) })))),
@@ -799,6 +816,123 @@ function AnalyzeTab({ map }) {
             rows.length > limit && (React.createElement("button", { onClick: () => setLimit((l) => l + 40), style: { ...btnGhost, marginTop: 10 } },
                 "Show more (",
                 rows.length - limit,
+                " left)")))),
+        React.createElement(SynergyExplorer, { map: map })));
+}
+// ============================================================================
+// SYNERGY EXPLORER — how much more is a combination worth than its parts?
+// ============================================================================
+function SynergyExplorer({ map }) {
+    const [base, setBase] = useState('');
+    const [addK, setAddK] = useState(2);
+    const [exDups, setExDups] = useState(false);
+    const [exBlanks, setExBlanks] = useState(false);
+    const [sortBy, setSortBy] = useState('synBest');
+    const [limit, setLimit] = useState(20);
+    const mono = "'JetBrains Mono', ui-monospace, monospace";
+    const alphabet = [...LETTERS, '?'];
+    const baseKey = useMemo(() => normKey(base.toUpperCase().replace(/[^A-Z?]/g, '').split('')), [base]);
+    const baseVal = baseKey === '' ? 0 : map.get(baseKey);
+    const baseOk = baseKey === '' || baseVal !== undefined;
+    const tooBig = baseKey.length + addK > 6;
+    useEffect(() => setLimit(20), [baseKey, addK, exDups, exBlanks, sortBy]);
+    const rows = useMemo(() => {
+        if (!baseOk || tooBig)
+            return [];
+        const bv = baseKey === '' ? 0 : map.get(baseKey);
+        const out = [];
+        if (addK === 1) {
+            for (const x of alphabet) {
+                const cv = map.get(normKey((baseKey + x).split('')));
+                const xv = map.get(x);
+                if (cv === undefined || xv === undefined)
+                    continue;
+                out.push({ label: x, alone: xv, marginal: cv - bv, syn: cv - bv - xv });
+            }
+        }
+        else {
+            for (let i = 0; i < alphabet.length; i++) {
+                for (let j = i; j < alphabet.length; j++) {
+                    const x = alphabet[i], y = alphabet[j];
+                    const cv = map.get(normKey((baseKey + x + y).split('')));
+                    const xv = map.get(normKey((baseKey + x).split('')));
+                    const yv = map.get(normKey((baseKey + y).split('')));
+                    if (cv === undefined || xv === undefined || yv === undefined)
+                        continue;
+                    out.push({ label: normKey([x, y]), marginal: cv - bv, syn: cv - xv - yv + bv });
+                }
+            }
+        }
+        let res = out;
+        if (exBlanks)
+            res = res.filter((r) => r.label.indexOf('?') < 0);
+        if (exDups) {
+            const bc = {};
+            for (const c of baseKey)
+                bc[c] = (bc[c] || 0) + 1;
+            res = res.filter((r) => {
+                const cc = { ...bc };
+                for (const c of r.label) {
+                    cc[c] = (cc[c] || 0) + 1;
+                    if (cc[c] >= 2)
+                        return false;
+                }
+                return true;
+            });
+        }
+        const cmp = {
+            synBest: (a, b) => b.syn - a.syn,
+            synWorst: (a, b) => a.syn - b.syn,
+            margBest: (a, b) => b.marginal - a.marginal,
+            margWorst: (a, b) => a.marginal - b.marginal,
+        }[sortBy];
+        res.sort(cmp);
+        return res;
+    }, [baseKey, baseOk, tooBig, addK, exDups, exBlanks, sortBy, map]);
+    const selStyle = { padding: '7px 8px', border: '1px solid #d9d0c0', borderRadius: 5, background: '#fdfbf5', fontFamily: mono, fontSize: 13, color: '#1f1a14' };
+    const shown = rows.slice(0, limit);
+    return (React.createElement(Card, { style: { marginTop: 14 } },
+        React.createElement(Label, null, "Synergy explorer"),
+        React.createElement("div", { style: { fontSize: 12, color: '#a89a86', marginTop: 6, lineHeight: 1.5 } }, "Synergy is how much more a combination is worth than the sum of its parts valued separately. Enter tiles you already plan to keep, or leave the box empty to compare pure combinations."),
+        React.createElement("input", { value: base, onChange: (e) => setBase(e.target.value), placeholder: "Base leave, for example IG (optional)", style: inputStyle }),
+        React.createElement("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', marginTop: 10 } },
+            React.createElement(Field, { label: "Add" },
+                React.createElement("select", { value: addK, onChange: (e) => setAddK(parseInt(e.target.value, 10)), style: selStyle },
+                    React.createElement("option", { value: 1 }, "1 tile"),
+                    React.createElement("option", { value: 2 }, "2 tiles"))),
+            React.createElement(Field, { label: "Sort" },
+                React.createElement("select", { value: sortBy, onChange: (e) => setSortBy(e.target.value), style: selStyle },
+                    React.createElement("option", { value: "synBest" }, "Best synergy"),
+                    React.createElement("option", { value: "synWorst" }, "Worst synergy"),
+                    React.createElement("option", { value: "margBest" }, "Best addition"),
+                    React.createElement("option", { value: "margWorst" }, "Worst addition"))),
+            React.createElement("label", { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#6b5d54', cursor: 'pointer', paddingBottom: 8 } },
+                React.createElement("input", { type: "checkbox", checked: exDups, onChange: (e) => setExDups(e.target.checked) }),
+                "No duplicates"),
+            React.createElement("label", { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#6b5d54', cursor: 'pointer', paddingBottom: 8 } },
+                React.createElement("input", { type: "checkbox", checked: exBlanks, onChange: (e) => setExBlanks(e.target.checked) }),
+                "No blanks")),
+        !baseOk && React.createElement("div", { style: { marginTop: 12, color: '#8b2e2e', fontSize: 14 } }, "That base leave is not in the data."),
+        baseOk && tooBig && React.createElement("div", { style: { marginTop: 12, color: '#8b2e2e', fontSize: 14 } },
+            "Leaves max out at 6 tiles. Shorten the base to add ",
+            addK,
+            " more."),
+        baseOk && !tooBig && baseKey === '' && addK === 1 && (React.createElement("div", { style: { marginTop: 12, color: '#8a7e70', fontSize: 13, fontStyle: 'italic' } }, "A single tile with no base has nothing to combine with, so synergy is zero. Add 2 tiles, or enter a base.")),
+        baseOk && !tooBig && rows.length > 0 && (React.createElement("div", { style: { marginTop: 12 } },
+            React.createElement("div", { style: { display: 'flex', justifyContent: 'flex-end', gap: 14, fontFamily: mono, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#8a7e70', padding: '0 4px 4px' } },
+                addK === 1 && React.createElement("span", null, "alone"),
+                React.createElement("span", null, "adds"),
+                React.createElement("span", { style: { width: 66, textAlign: 'right' } }, "synergy")),
+            shown.map((r) => (React.createElement("div", { key: r.label, style: { display: 'flex', alignItems: 'center', gap: 10, padding: '6px 4px', borderBottom: '1px solid #f0eadc' } },
+                React.createElement("div", { style: { width: 62, flexShrink: 0 } },
+                    React.createElement(TileRow, { letters: r.label, size: 22, gap: 2 })),
+                React.createElement("div", { style: { flex: 1, display: 'flex', justifyContent: 'flex-end', gap: 14, fontFamily: mono, fontSize: 12, alignItems: 'baseline' } },
+                    addK === 1 && React.createElement("span", { style: { color: '#8a7e70' } }, fmt(r.alone)),
+                    React.createElement("span", { style: { color: '#6b5d54' } }, fmt(r.marginal)),
+                    React.createElement("span", { style: { width: 66, textAlign: 'right', fontWeight: 600, fontSize: 14, color: r.syn >= 0 ? '#3d6b3d' : '#8b2e2e' } }, fmt(r.syn)))))),
+            rows.length > limit && (React.createElement("button", { onClick: () => setLimit((l) => l + 30), style: { ...btnGhost, marginTop: 10 } },
+                "Show more (",
+                rows.length - limit,
                 " left)"))))));
 }
 // ============================================================================
@@ -813,6 +947,7 @@ function SheetsTab({ map, sortedRef }) {
     const [vowels, setVowels] = useState('any');
     const [cons, setCons] = useState('any');
     const [limit, setLimit] = useState(50);
+    const [view, setView] = useState('values');
     useEffect(() => {
         if (sortedRef.current) {
             setReady(true);
@@ -868,45 +1003,191 @@ function SheetsTab({ map, sortedRef }) {
     const shown = filtered.slice(0, limit);
     const sel = { padding: '7px 8px', border: '1px solid #d9d0c0', borderRadius: 5, background: '#fdfbf5', fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 13, color: '#1f1a14' };
     return (React.createElement("div", null,
+        React.createElement("div", { style: { display: 'flex', gap: 8, marginBottom: 14 } },
+            React.createElement("button", { onClick: () => setView('values'), style: view === 'values' ? btnSmall : btnGhost }, "Leave values"),
+            React.createElement("button", { onClick: () => setView('synergy'), style: view === 'synergy' ? btnSmall : btnGhost }, "Synergy")),
+        view === 'synergy' ? React.createElement(SynergySheets, { map: map }) : (React.createElement(React.Fragment, null,
+            React.createElement(Card, null,
+                React.createElement("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' } },
+                    React.createElement(Field, { label: "Tiles" },
+                        React.createElement("select", { value: tiles, onChange: (e) => setTiles(e.target.value), style: sel },
+                            React.createElement("option", { value: "any" }, "Any"),
+                            [1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))),
+                    React.createElement(Field, { label: "Order" },
+                        React.createElement("select", { value: order, onChange: (e) => setOrder(e.target.value), style: sel },
+                            React.createElement("option", { value: "best" }, "Best"),
+                            React.createElement("option", { value: "worst" }, "Worst"))),
+                    React.createElement(Field, { label: "Blanks" },
+                        React.createElement("select", { value: blanks, onChange: (e) => setBlanks(e.target.value), style: sel },
+                            React.createElement("option", { value: "include" }, "Include"),
+                            React.createElement("option", { value: "exclude" }, "Exclude"))),
+                    React.createElement(Field, { label: "Dupes" },
+                        React.createElement("select", { value: dups, onChange: (e) => setDups(e.target.value), style: sel },
+                            React.createElement("option", { value: "include" }, "Include"),
+                            React.createElement("option", { value: "exclude" }, "Exclude"))),
+                    React.createElement(Field, { label: "Vowels" },
+                        React.createElement("select", { value: vowels, onChange: (e) => setVowels(e.target.value), style: sel },
+                            React.createElement("option", { value: "any" }, "Any"),
+                            [0, 1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))),
+                    React.createElement(Field, { label: "Cons" },
+                        React.createElement("select", { value: cons, onChange: (e) => setCons(e.target.value), style: sel },
+                            React.createElement("option", { value: "any" }, "Any"),
+                            [0, 1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))))),
+            React.createElement(Card, { style: { marginTop: 14 } },
+                React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 } },
+                    React.createElement(Label, null,
+                        filtered.length.toLocaleString(),
+                        " leaves"),
+                    filtered.length > 0 && (React.createElement("button", { onClick: () => downloadCSV('cheatsheet.csv', filtered.slice(0, 5000)), style: btnSmall }, "Download CSV"))),
+                shown.length === 0 && React.createElement("div", { style: { color: '#8a7e70', fontStyle: 'italic', fontSize: 14 } }, "No leaves match these filters."),
+                shown.map((r, i) => (React.createElement(RankRow, { key: r.leave, rank: i + 1, leave: r.leave, value: r.value }))),
+                filtered.length > limit && (React.createElement("button", { onClick: () => setLimit((l) => l + 50), style: { ...btnGhost, marginTop: 10 } },
+                    "Show more (",
+                    (filtered.length - limit).toLocaleString(),
+                    " left)")),
+                filtered.length > 5000 && (React.createElement("div", { style: { fontSize: 11, color: '#a89a86', marginTop: 8 } }, "CSV export capped at 5,000 rows.")))))));
+}
+// ============================================================================
+// SYNERGY CHEAT SHEETS — per-letter partners, best pairs, best trios
+// ============================================================================
+function SynergySheets({ map }) {
+    const [mode, setMode] = useState('perLetter');
+    const [exDups, setExDups] = useState(true);
+    const [exBlanks, setExBlanks] = useState(false);
+    const [order, setOrder] = useState('best');
+    const [limit, setLimit] = useState(15);
+    const mono = "'JetBrains Mono', ui-monospace, monospace";
+    const alphabet = [...LETTERS, '?'];
+    useEffect(() => setLimit(15), [mode, exDups, exBlanks, order]);
+    const syn2 = (x, y) => {
+        const v = map.get(normKey([x, y]));
+        const vx = map.get(x), vy = map.get(y);
+        if (v === undefined || vx === undefined || vy === undefined)
+            return null;
+        return v - vx - vy;
+    };
+    const perLetter = useMemo(() => {
+        if (mode !== 'perLetter')
+            return null;
+        return alphabet
+            .filter((x) => !(exBlanks && x === '?'))
+            .map((x) => {
+            const partners = [];
+            for (const y of alphabet) {
+                if (exDups && y === x)
+                    continue;
+                if (exBlanks && y === '?')
+                    continue;
+                const s = syn2(x, y);
+                if (s !== null)
+                    partners.push({ y, s });
+            }
+            partners.sort((a, b) => b.s - a.s);
+            return { x, top: partners.slice(0, 3), bottom: partners.slice(-3).reverse() };
+        });
+    }, [mode, exDups, exBlanks, map]);
+    const combos = useMemo(() => {
+        if (mode === 'perLetter')
+            return null;
+        const out = [];
+        if (mode === 'pairs') {
+            for (let i = 0; i < alphabet.length; i++) {
+                for (let j = i; j < alphabet.length; j++) {
+                    const x = alphabet[i], y = alphabet[j];
+                    if (exDups && x === y)
+                        continue;
+                    if (exBlanks && (x === '?' || y === '?'))
+                        continue;
+                    const s = syn2(x, y);
+                    if (s !== null)
+                        out.push({ leave: normKey([x, y]), s });
+                }
+            }
+        }
+        else {
+            for (const ms of multisets(alphabet, 3)) {
+                if (exDups && (ms[0] === ms[1] || ms[1] === ms[2]))
+                    continue;
+                if (exBlanks && ms.indexOf('?') >= 0)
+                    continue;
+                const v = map.get(normKey(ms));
+                if (v === undefined)
+                    continue;
+                const v0 = map.get(ms[0]), v1 = map.get(ms[1]), v2 = map.get(ms[2]);
+                if (v0 === undefined || v1 === undefined || v2 === undefined)
+                    continue;
+                out.push({ leave: normKey(ms), s: v - v0 - v1 - v2 });
+            }
+        }
+        out.sort((a, b) => (order === 'best' ? b.s - a.s : a.s - b.s));
+        return out;
+    }, [mode, exDups, exBlanks, order, map]);
+    const selStyle = { padding: '7px 8px', border: '1px solid #d9d0c0', borderRadius: 5, background: '#fdfbf5', fontFamily: mono, fontSize: 13, color: '#1f1a14' };
+    const chip = (p) => `${p.y === '?' ? 'blank' : p.y} ${fmt(p.s)}`;
+    return (React.createElement("div", null,
         React.createElement(Card, null,
-            React.createElement("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'flex-end' } },
-                React.createElement(Field, { label: "Tiles" },
-                    React.createElement("select", { value: tiles, onChange: (e) => setTiles(e.target.value), style: sel },
-                        React.createElement("option", { value: "any" }, "Any"),
-                        [1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))),
-                React.createElement(Field, { label: "Order" },
-                    React.createElement("select", { value: order, onChange: (e) => setOrder(e.target.value), style: sel },
-                        React.createElement("option", { value: "best" }, "Best"),
-                        React.createElement("option", { value: "worst" }, "Worst"))),
-                React.createElement(Field, { label: "Blanks" },
-                    React.createElement("select", { value: blanks, onChange: (e) => setBlanks(e.target.value), style: sel },
-                        React.createElement("option", { value: "include" }, "Include"),
-                        React.createElement("option", { value: "exclude" }, "Exclude"))),
-                React.createElement(Field, { label: "Dupes" },
-                    React.createElement("select", { value: dups, onChange: (e) => setDups(e.target.value), style: sel },
-                        React.createElement("option", { value: "include" }, "Include"),
-                        React.createElement("option", { value: "exclude" }, "Exclude"))),
-                React.createElement(Field, { label: "Vowels" },
-                    React.createElement("select", { value: vowels, onChange: (e) => setVowels(e.target.value), style: sel },
-                        React.createElement("option", { value: "any" }, "Any"),
-                        [0, 1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))),
-                React.createElement(Field, { label: "Cons" },
-                    React.createElement("select", { value: cons, onChange: (e) => setCons(e.target.value), style: sel },
-                        React.createElement("option", { value: "any" }, "Any"),
-                        [0, 1, 2, 3, 4, 5, 6].map((n) => React.createElement("option", { key: n, value: n }, n)))))),
-        React.createElement(Card, { style: { marginTop: 14 } },
-            React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 } },
-                React.createElement(Label, null,
-                    filtered.length.toLocaleString(),
-                    " leaves"),
-                filtered.length > 0 && (React.createElement("button", { onClick: () => downloadCSV('cheatsheet.csv', filtered.slice(0, 5000)), style: btnSmall }, "Download CSV"))),
-            shown.length === 0 && React.createElement("div", { style: { color: '#8a7e70', fontStyle: 'italic', fontSize: 14 } }, "No leaves match these filters."),
-            shown.map((r, i) => (React.createElement(RankRow, { key: r.leave, rank: i + 1, leave: r.leave, value: r.value }))),
-            filtered.length > limit && (React.createElement("button", { onClick: () => setLimit((l) => l + 50), style: { ...btnGhost, marginTop: 10 } },
+            React.createElement("div", { style: { fontSize: 12, color: '#a89a86', lineHeight: 1.5, marginBottom: 10 } }, "Synergy is how much more a combination is worth than the sum of its letters valued separately. Positive means the letters work together. Negative means they get in each other's way."),
+            React.createElement("div", { style: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' } },
+                React.createElement(Field, { label: "View" },
+                    React.createElement("select", { value: mode, onChange: (e) => setMode(e.target.value), style: selStyle },
+                        React.createElement("option", { value: "perLetter" }, "By letter"),
+                        React.createElement("option", { value: "pairs" }, "All pairs"),
+                        React.createElement("option", { value: "trios" }, "All trios"))),
+                mode !== 'perLetter' && (React.createElement(Field, { label: "Order" },
+                    React.createElement("select", { value: order, onChange: (e) => setOrder(e.target.value), style: selStyle },
+                        React.createElement("option", { value: "best" }, "Best first"),
+                        React.createElement("option", { value: "worst" }, "Worst first")))),
+                React.createElement("label", { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#6b5d54', cursor: 'pointer', paddingBottom: 8 } },
+                    React.createElement("input", { type: "checkbox", checked: exDups, onChange: (e) => setExDups(e.target.checked) }),
+                    "No duplicates"),
+                React.createElement("label", { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#6b5d54', cursor: 'pointer', paddingBottom: 8 } },
+                    React.createElement("input", { type: "checkbox", checked: exBlanks, onChange: (e) => setExBlanks(e.target.checked) }),
+                    "No blanks"))),
+        mode === 'perLetter' && perLetter && (React.createElement(Card, { style: { marginTop: 14 } },
+            React.createElement(Label, null, "Top 3 and bottom 3 synergy partners for each tile"),
+            React.createElement("div", { style: { marginTop: 8 } }, perLetter.map(({ x, top, bottom }) => (React.createElement("div", { key: x, style: { display: 'flex', alignItems: 'center', gap: 12, padding: '7px 4px', borderBottom: '1px solid #f0eadc' } },
+                React.createElement(Tile, { letter: x, size: 28 }),
+                React.createElement("div", { style: { flex: 1, minWidth: 0, fontFamily: mono, fontSize: 12, display: 'flex', flexDirection: 'column', gap: 3 } },
+                    React.createElement("div", { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                        React.createElement("span", { style: { color: '#3d6b3d', marginRight: 8 } }, "best"),
+                        top.map(chip).join('   ')),
+                    React.createElement("div", { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } },
+                        React.createElement("span", { style: { color: '#8b2e2e', marginRight: 8 } }, "worst"),
+                        bottom.map(chip).join('   '))))))))),
+        mode !== 'perLetter' && combos && (React.createElement(Card, { style: { marginTop: 14 } },
+            React.createElement(Label, null,
+                combos.length.toLocaleString(),
+                " ",
+                mode === 'pairs' ? 'pairs' : 'trios',
+                " by synergy"),
+            React.createElement("div", { style: { marginTop: 8 } }, combos.slice(0, limit).map((r, i) => (React.createElement(RankRow, { key: r.leave, rank: i + 1, leave: r.leave, value: r.s })))),
+            combos.length > limit && (React.createElement("button", { onClick: () => setLimit((l) => l + 25), style: { ...btnGhost, marginTop: 10 } },
                 "Show more (",
-                (filtered.length - limit).toLocaleString(),
-                " left)")),
-            filtered.length > 5000 && (React.createElement("div", { style: { fontSize: 11, color: '#a89a86', marginTop: 8 } }, "CSV export capped at 5,000 rows.")))));
+                (combos.length - limit).toLocaleString(),
+                " left)"))))));
+}
+// ============================================================================
+// MISTAKE SEVERITY BUCKETS
+// ============================================================================
+function eqBucket(m) {
+    const marg = m.margin !== undefined ? m.margin : Math.abs(m.opts[0].equity - m.opts[1].equity);
+    return marg > 3 ? 'large' : 'medium';
+}
+function lvBucket(m) {
+    const marg = m.pickVal === null || m.pickVal === undefined ? 99 : m.bestVal - m.pickVal;
+    if (marg < 1)
+        return 'small';
+    return marg <= 3 ? 'medium' : 'large';
+}
+function BucketChip({ b }) {
+    const colors = { small: ['#f0eadc', '#6b5d54'], medium: ['#fdf4e3', '#7a5a2a'], large: ['#faeeee', '#8b2e2e'] };
+    const [bg, fg] = colors[b];
+    return (React.createElement("span", { style: { fontSize: 10, padding: '3px 9px', borderRadius: 9, background: bg, color: fg, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'JetBrains Mono', ui-monospace, monospace", flexShrink: 0 } }, b));
+}
+function BucketFilter({ buckets, setBuckets, defs }) {
+    return (React.createElement("div", { style: { display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8 } }, defs.map(([k, label]) => (React.createElement("label", { key: k, style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, color: '#6b5d54', cursor: 'pointer' } },
+        React.createElement("input", { type: "checkbox", checked: buckets[k], onChange: (e) => setBuckets({ ...buckets, [k]: e.target.checked }) }),
+        label)))));
 }
 // ============================================================================
 // SHARED UI
